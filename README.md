@@ -1,1 +1,1 @@
-# Salamander_telencephalon
+# Salamander telencephalon
