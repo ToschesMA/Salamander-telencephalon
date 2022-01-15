@@ -1,0 +1,741 @@
+---
+title: "comparative_analysis_mastercode"
+author: "MAT"
+date: "12/8/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Preparing Query and Reference datasets
+
+```{r}
+setwd("~/Documents/Lab_Columbia/Pleurodeles_scRNAseq/Comparative")
+```
+
+
+```{r}
+# new stuff work in progress
+# Colors: violetred4, steelblue4, slateblue4, indianred4, magenta3, black, seagreen
+scores <- grep("prediction.score", colnames(pallium@meta.data), value=TRUE)
+for(i in 1:length(scores)){
+    res= aggregate(pallium@meta.data[,scores[i]], list(pallium@meta.data$cluster_labels), FUN=mean)
+    table[[i]] = res
+}
+combo <- bind_cols(do.call(bind_cols, lapply(table, `[`, -1)))
+rownames(combo) <- table[[1]][,1]
+colnames(combo) <- str_remove(scores,"prediction.score.")
+combo <- na.omit(combo)
+combo <- combo[, !colnames(combo)== "max"]
+combo <- combo[,order(colnames(combo))]
+p1 <- corrplot(as.matrix(combo), order="original",tl.pos="lt", method="color", tl.col="black", is.corr=F)
+p2 <- corrplot(na.omit(results.norm), order="original",tl.pos="lt", method="color", tl.col="black", is.corr=F)
+
+```
+```{r}
+# UMAP of prediction scores
+
+# res <- readRDS("")
+
+pallium_names <- readRDS("/Users/maria/Documents/Lab_Columbia/Pleurodeles_scRNAseq/Comparative/pallium_crop_names.RDS")
+pallium <- subset(neur, cells=pallium_names)
+
+pallium@meta.data <- pallium@meta.data[,1:46]
+
+predictions <- res[[3]]
+predictions[is.na(predictions)] <- 0
+
+pallium <- AddMetaData(pallium, predictions)
+
+pdf("C25_predictions.pdf")
+scores = grep("prediction.score.",colnames(pallium@meta.data), value=TRUE)
+for(i in 1:length(scores)) {   
+     p <- FeaturePlot(pallium, scores[i],cells=WhichCells(pallium, idents=c(paste0("TEGLU", seq(1,11,by=1))))) + scale_color_gradient(low="grey90",high="violetred4", space ="Lab", limits=c(0,1))
+     print(p)
+}
+dev.off()
+
+# plot by setting the q99 quantile as max value
+scores <- neur@meta.data$prediction.score.Amygdala
+q <- quantile(scores, probs=seq(0.9,1,0.01))
+library(RColorBrewer)
+cols = brewer.pal(n = 5, name = "BuPu") 
+FeaturePlot(pallium, "prediction.score.Amygdala") + scale_color_gradientn(colours = cols, limits=c(0,q["99%"]))
+FeaturePlot(pallium, "prediction.score.Amygdala") + scale_color_gradient(low="grey90",high="violetred4", space ="Lab", limits=c(0,q["99%"]))
+
+```
+
+```{r}
+# UMAP of prediction scores
+
+# res <- readRDS("")
+
+neur@meta.data <- neur@meta.data[,1:46]
+neur <- AddMetaData(neur, res[["predictions"]])
+
+pdf("C24_predictions.pdf")
+scores = grep("prediction.score.",colnames(neur@meta.data), value=TRUE)
+for(i in 1:length(scores)) {   
+     p <- FeaturePlot(neur, scores[i]) + scale_color_gradient(low="grey90",high="violetred4", space ="Lab", limits=c(0,1))
+     print(p)
+}
+dev.off()
+```
+
+```{r}
+# select a projection score to ignore (thr), and take cells with max projection scores above the threshold and plot only those (as long as there is a minum number of them)
+thr = 0.2
+min.num=40
+predictions <- res[["predictions"]]
+filt.predicted.id <- predictions$predicted.id
+names(filt.predicted.id) <- rownames(predictions)
+# predictions <- cbind(predictions, filt.predicted.id)
+low.predictions <- rownames(predictions)[predictions$prediction.score.max < thr]
+filt.predicted.id[names(filt.predicted.id) %in% low.predictions] <- NA
+
+predictions <- cbind(predictions, filt.predicted.id)
+# colnames(predictions$filt.predicted.id) <- paste0("predicted.id.", thr)
+neur@meta.data <- neur@meta.data[,1:46]
+neur <- AddMetaData(neur, predictions)
+to.plot <- names(table(neur@meta.data$filt.predicted.id)[table(neur@meta.data$filt.predicted.id)>min.num])
+cells.to.plot <- rownames(neur@meta.data[neur@meta.data$filt.predicted.id %in% to.plot,])
+DimPlot(neur, group.by = "filt.predicted.id", cells=cells.to.plot, label=T, label.size = 3, repel=T) + NoLegend()
+```
+
+
+
+```{r}
+prediction.scores <- predictions[,2:(ncol(predictions)-1)]
+prediction.scores[prediction.scores<thr] <- 0
+possible.ids <- colnames(prediction.scores)
+
+for (i in 1:nrow(prediction.scores)){
+  new.predicted.ids[i] = prediction.scores[which.max(prediction.scores[i,])]
+}
+
+
+new.predicted.ids <- possible.ids[apply(X = prediction.scores,   MARGIN = 1, FUN = which.max)]
+
+
+new.predicted.ids <- as.character(new.predicted.ids)
+
+
+
+
+```
+
+Lizard dataset
+
+```{r}
+liz <- readRDS("/Users/maria/Documents/Lab_MPI/Papers_MPI/2019_claustrum/E29T_dataset/Norimoto2020_lizard_tel_neurons.RDS")
+liz$Norimoto_idents <- Idents(liz)
+
+# subcluster data with res=6 to get out the Reln cells from the "LCtx" cluster; they come out as cluster 49
+liz <- FindClusters(liz, res=6)
+idents49 <- names(Idents(liz)[Idents(liz) == "49"])
+Idents(liz) <- liz@meta.data$Norimoto_idents
+idents <- Idents(liz)
+idents <- as.character(idents)
+names(idents) <- names(Idents(liz))
+idents[idents49] <- "LCtx_1"
+idents[idents == "LCtx"] <- "LCtx_2"
+Idents(liz) <- idents
+
+saveRDS(liz, "Norimoto_lizard_neur.RDS")
+
+l_pallium <- c("aDVR_1","aDVR_2","pDVR","DCtx","LCtx_1","LCtx_2",paste0("MCtx_", seq(1,7, by=1)),"DLA_1","DLA_2","amDVR")
+
+l_subpallium <- c("Str_PENK","Sub_1","OT","Sept_1","Str_TAC1","Sept_2","Pd","MGE_INs_6","Chol","<GE_INs_3","MGE_INs_1","CGE_INs_1","MGE_INs_2","MGE_INs_5","Sept_3","CGE_INs_2","MGE_INs_4")
+```
+
+
+turtle dataset
+
+```{r}
+tur <- readRDS("170528_turtle_neur.RDS")
+t_pallium <- c(paste0("e0", c(seq(1,9,by=1))), paste0("e", c(seq(10,38,by=1))))
+
+t_pallium <- c("aDC","aDVR","aLC","DMC","MC","pDC","pDVR","pLC","PT")
+```
+
+
+Yao dataset
+
+```{r}
+
+# Smart-seq v4 data; problem: almost no entorhinal and few cells from hippocampus
+load("Seurat.ss.rda")
+ss.metadata <- read.csv("metadata.csv", row.names = 1)
+ss.seurat <- AddMetaData(ss.seurat, ss.metadata)
+ 
+# select neurons, remove non-neuronal cells
+ss.seurat <- subset(ss.seurat, cells = rownames(ss.seurat@meta.data[ss.seurat@meta.data$class_label %in% c("GABAergic","Glutamatergic"),]))
+ss.seurat <- SCTransform(ss.seurat, vars.to.regress = c("nFeature_RNA","nCount_RNA"))
+ss.seurat <- RunPCA(ss.seurat, npcs = 100)
+nPCs = 54
+ss.seurat <- RunUMAP(ss.seurat, dims = 1:nPCs)
+Idents(ss.seurat) <- ss.seurat@meta.data$subclass_label
+saveRDS(ss.seurat, file="mouse_yao_ss.RDS")
+
+#############################################################################
+
+# # 10x v2 data, over 1 million cells; downsample to 200000
+# library(rhdf5)
+# # vignette: https://www.bioconductor.org/packages/devel/bioc/vignettes/rhdf5/inst/doc/rhdf5.html
+# 
+# yao2 <- H5Fopen("expression_matrix.hdf5")
+# yao2&'data'
+# 
+# # vector of genes
+# yao2genes = yao2&"/data/gene/"
+# yao2genes[1:3]
+# 
+# # vector of cellIDs, select a random 50k subset
+# yao2cells = yao2&"/data/samples/"
+# # yao2cells_50k <- sample(yao2cells[], 50000) # works, but useless at line 83
+# 
+# # extract counts, CELLS ARE IN ROWS!!
+# yao2dge = yao2&"/data/counts/"
+# 
+# 
+# # library(Matrix) 
+# # yao2dge50k <- yao2dge[yao2cells_50k,] # doesn't work!!
+# 
+# indexes <- seq(1, 1100000, by=1)
+# indexes <- sample(indexes, 50000)
+# 
+# yao2dge50k <- yao2dge[indexes,]
+# yao2dge50k <- Matrix(yao2dge50k, sparse=T)
+# rownames(yao2dge50k) <- yao2cells[indexes]
+# colnames(yao2dge50k) <- yao2genes[]
+# saveRDS(yao2dge50k, file="mouse_yao_10x_50k_cells.rds")
+# 
+# # work on metadata
+# yao2_metadata <- read.csv("metadata2.csv", header=T, row.names = 1)
+# yao2_metadata2 <- yao2_metadata[yao2_names,]
+# 
+# # on Ginsburg
+# yao2 <- CreateSeuratObject(yao2_data, yao2_metadata2) 
+
+
+####### second attempt (balancing proportions of neuron subclasses: select cell IDs first, based on metadata, and filter data matrix accordingly)
+# on GINSBURG!!
+
+yao2_metadata <- read.csv("metadata2.csv", header=T, row.names = 1)
+yao2_metadata_neur <- yao2_metadata[yao2_metadata$class_label %in% c("GABAergic","Glutamatergic"),] 
+
+subclasses <- names(table(yao2_metadata_neur$subclass_label))
+yao2_names = NULL
+for(i in 1:length(subclasses)){
+  subclass_names <- rownames(yao2_metadata_neur[yao2_metadata_neur$subclass_label == subclasses[i],])
+  if (length(subclass_names) >2000){
+    yao2_names[[i]] <- sample(subclass_names, 2000)
+  } else {
+    yao2_names[[i]] = subclass_names
+  }
+}
+yao2_names_2 <- unlist(yao2_names)
+length(yao2_names_2)
+saveRDS(yao2_names_2, file="mouse_yao_10x_names_4k_each.RDS")
+
+### filter data matrix (hdf5 file)
+yao2 <- H5Fopen("expression_matrix.hdf5")
+yao2&'data'
+
+# vector of genes
+yao2genes = yao2&"/data/gene/"
+yao2genes[1:3]
+
+# extract counts, CELLS ARE IN ROWS!!
+yao2dge = yao2&"/data/counts/"
+
+# vector of cellIDs, select a random 50k subset
+yao2cells = yao2&"/data/samples/"
+yao2cells <- as.character(yao2cells[])
+names(yao2cells) <- seq(1,length(yao2cells), by=1)
+indexes <- names(yao2cells[yao2cells %in% yao2_names_2])
+yao2_names_2 <- yao2cells[indexes]
+
+yao2dge116k <- yao2dge[as.numeric(indexes),]
+yao2dge116k <- Matrix(yao2dge116k, sparse=T)
+rownames(yao2dge116k) <- yao2_names_2
+colnames(yao2dge116k) <- yao2genes[]
+saveRDS(yao2dge116k, file="mouse_yao_10x_116k_cells.rds")
+
+
+table(yao2_metadata$subclass_label)
+
+m_pallium <- c("CA1-ProS","CA2-IG-FC","CA3","Car3","CT SUB","DG","L2 IT ENTl","L2 IT ENTm","L2/3 IT CTX","L2/3 IT ENTl","L2/3 IT PPP","L2/3 IT RHP","L3 IT ENT","L4 RSP-ACA","L4/5 IT CTX","L5 IT CTX","L5 PPP","L5 PT CTX","L5/6 IT TPE-ENT","L5/6 NP CTX"," L6 CT CTX","L6 IT CTX","L6 IT ENTl","L6b CTX","L6b/CT ENT","NP PPP","NP SUB","SUB-ProS")
+
+m_subpallium <- c("Lamp5","Meis2","Pvalb","Sncg","Sst","Sst Chodl", "Vip")
+
+```
+
+Pleurodeles dataset
+
+```{r}
+# Split TEGLU30 in two subclusters 
+# clusters renamed by Alonso later after this splitting!
+# neur <- readRDS("neurons_final.rds")
+# teglu30 <- subset(neur, idents="TEGLU30")
+# teglu30 <- RunPCA(teglu30)
+# teglu30 <- FindNeighbors(teglu30, dims=1:10)
+# teglu30 <- FindClusters(teglu30, res=0.2)
+# teglu30.1 <- names(Idents(teglu30)[Idents(teglu30) == "0"])
+# teglu30.2 <- names(Idents(teglu30)[Idents(teglu30) == "1"])
+# 
+# new.idents <- as.character(Idents(neur))
+# names(new.idents) <- names(Idents(neur))
+# new.idents[teglu30.1] <- "TEGLU30.1"
+# new.idents[teglu30.2] <- "TEGLU30.2"
+# Idents(neur) <- new.idents
+# neur$cluster_labels <- Idents(neur)
+# saveRDS(neur, file="neurons_final2.rds")
+
+# Define cells to remove in comparative analysis
+ob_granule <- paste0("TEGABA", c(seq(1, 17, by=1)))
+ob_mt <- paste0("TEGLU", c(seq(23, 28, by=1)))
+non_tel <- c(paste0("DIMEGLU", c(seq(1,9,by=1))), paste0("DIMEGABA", c(seq(1,2,by=1))))
+remove <- c(ob_granule, ob_mt, non_tel)
+
+# pallium without ob cells
+s_pallium <- paste0("TEGLU", c(seq(1, 21, by=1), seq(30,34, by=1)))
+
+# subpallium without ob cells
+s_subpallium <- paste0("TEGABA", c(seq(18, 65, by=1)))
+
+# all GABAergic cells
+gaba <- grep("TEGABA", levels(Idents(query0)), value=T)
+
+# plus septal cells
+s_subpallium <- c(grep("TEGABA", levels(Idents(query0)), value=T), "TEGLU35")
+
+```
+
+
+Zeisel dataset
+
+```{r}
+zeisel_loom <- LoadLoom("l6_r1_neurons.loom")
+
+zeisel_loom <- subset(zeisel_loom, cells = rownames(zeisel_loom@meta.data[zeisel_loom@meta.data$Subclass == "Neurons",]))
+zeisel_loom <- subset(zeisel_loom, cells = rownames(zeisel_loom@meta.data[zeisel_loom@meta.data$Developmental_compartment == "Telencephalon",]))
+zeisel_loom <- subset(zeisel_loom, cells = rownames(zeisel_loom@meta.data[! zeisel_loom@meta.data$Tissue %in% c("CB","Hypoth","Thal"),]))
+
+zeisel_loom
+# An object of class Seurat 
+# 27998 features across 48299 samples within 1 assay 
+# Active assay: RNA (27998 features, 0 variable features)
+
+# on the cluster:
+Idents(reference0) <- reference0@meta.data$ClusterName
+
+
+# steps to add to Zeisel preprocessing
+ribo.genes <- c(grep("Rpl",rownames(zeisel), value=T),grep("Rps",rownames(zeisel), value=T))
+zeisel[["percent.ribo"]] <- PercentageFeatureSet(zeisel, features=ribo.genes)
+
+zeisel[["percent.mt"]] <- PercentageFeatureSet(zeisel, pattern = "^mt-")
+vars_ref = c("nFeature_RNA","nCount_RNA","SampleID", "Age","percent.mt")
+
+library(e1071)
+Idents(zeisel) <- zeisel@meta.data$seurat_clusters
+bad.clusters <- c("56","60","82") 
+names <- colnames(zeisel)
+bad.names <- WhichCells(zeisel, idents = bad.clusters)
+good.names<-names[!names %in% bad.names]
+
+train.bad.names<-sample(bad.names,100) # selects randomly 100 bad cells for training set
+train.good.names<-sample(good.names,100) # selects randomly 100 good cells for training set
+
+data.info <- zeisel@meta.data[,c("nCount_RNA","nFeature_RNA","percent.mt")]
+
+train.bad<-data.info[train.bad.names,]
+train.good<-data.info[train.good.names,]
+train<-rbind(train.good,train.bad)
+ytrain <- matrix(c(rep(1,100),rep(-1,100)))
+
+train.final = data.frame(train, ytrain=as.factor(ytrain))
+
+# train the classifier
+
+svmfit=svm(ytrain~., data=train.final, kernel="linear", cost=0.1, scale=F) 
+
+set.seed (1)
+tune.out=tune(svm,ytrain~.,data=train.final,kernel="linear", ranges=list(cost=c(0.1,1,10,100, 500)))
+summary(tune.out)
+# this is choosing which is the best cost for the svm
+
+bestmod=tune.out$best.model
+summary(bestmod)
+
+test.bad.names<-bad.names[!bad.names %in% train.bad.names]
+test.good.names<-good.names[!good.names %in% train.good.names]
+test.bad<-data.info[test.bad.names,]
+test.good<-data.info[test.good.names,]
+test<-rbind(test.good,test.bad)
+test<-data.info[!rownames(data.info)%in% rownames(train),]
+
+test<-as.matrix(test)
+ytest<-matrix(c(rep(1,length(test.good.names)),rep(-1,length(test.bad.names))))
+
+test.final = data.frame(test, ytest=as.factor(ytest))
+
+ypred=predict(bestmod,test.final)
+table(predict=ypred, truth=test.final$ytest)
+
+ypred<-as.data.frame(ypred)
+
+zeisel = AddMetaData(zeisel, ypred)
+
+pred<-as.data.frame(zeisel@meta.data$ypred)
+rownames(pred)<-rownames(zeisel@meta.data)
+pred[train.bad.names,]<-"-1"
+pred[train.good.names,]<-"1"
+colnames(pred)<-c("svm_class")
+zeisel = AddMetaData(zeisel, pred)
+
+zeisel_good_cells <- rownames(zeisel@meta.data[zeisel@meta.data$svm_class=="1",])
+saveRDS(zeisel_good_cells, file="zeisel_good_cells.RDS")
+
+gaba <- c(grep("TEINH", levels(Idents(reference0)), value=T), grep("MSN", levels(Idents(reference0)), value=T), grep("OB", levels(Idents(reference0)), value=T), "SEPNBL", "SZNBL", "TECHO")
+
+```
+
+
+## Label transfer pipeline
+
+To run on the server
+
+```{r}
+# Libraries
+library(Seurat)
+library(SeuratDisk)
+library(corrplot)
+library(MatrixGenerics)
+library(ggplot2)
+
+########################################################################
+# Import files
+reference0 <- readRDS("")
+query0 <- readRDS("")
+eggnog_reference <- read.table(" _eggnog_pruned.txt" , header=T)
+eggnog_query <- read.table(" _eggnog_pruned.txt" , header=T)
+
+# Setting variables
+date = "211209"
+Sr = "S"
+Sq = "T"  
+reference_name = "salamander"
+query_name = "turtle"
+r_idents_keep = levels(Idents(reference0))[!levels(Idents(reference0)) %in% c( )]
+q_idents_keep = levels(Idents(query0))[!levels(Idents(query0)) %in% c( )]
+vars_ref = c("nFeature_RNA","nCount_RNA","animal","percent.mt")
+vars_query = c("nFeature_RNA","nCount_RNA","animalident","percent.mito")
+nPCs_r = 180
+nPCs_q = 38  
+nDims = 50
+Kanchor = 10
+Kweight = 10
+thr = 0.5     # filtering threshold for prediction scores
+
+########################################################################
+# Bring the objects in the same gene space
+
+reference0 <- subset(reference0, idents = r_idents_keep)
+query0 <- subset(query0, idents = q_idents_keep)
+
+r_data <- GetAssayData(reference0, slot="counts")
+r_data <- r_data[rownames(r_data) %in% eggnog_reference[,1],]
+
+q_data <- GetAssayData(query0, slot="counts") 
+q_data <- q_data[rownames(q_data) %in% eggnog_query[,1],]
+
+eggnog_r <- eggnog_reference[eggnog_reference[,1] %in% rownames(r_data),]
+eggnog_q <- eggnog_query[eggnog_query[,1] %in% rownames(q_data),]
+
+r_data <- r_data[order(match(rownames(r_data), eggnog_r[,1])),]
+q_data <- q_data[order(match(rownames(q_data), eggnog_q[,1])),]
+
+all.equal(rownames(r_data),as.character(eggnog_r[,1]))
+all.equal(rownames(q_data),as.character(eggnog_q[,1]))
+
+# replace gene names with eggnog names in expression tables (only one-to-ones)
+rownames(r_data) <- eggnog_r$eggnog 
+rownames(q_data) <- eggnog_q$eggnog 
+dim(r_data)
+dim(q_data)
+
+# Create metadata column with species information
+reference0[["cluster_label"]] <- Idents(object = reference0)
+query0[["cluster_label"]] <- Idents(object = query0)
+
+meta.seurat <- data.frame(
+  cluster_label = c(paste(Sq, as.character(Idents(query0)), sep="-"), paste(Sr,as.character(Idents(reference0)), sep="-")),
+  species = c(rep(query_name, length(Idents(query0))),rep(reference_name, length(Idents(reference0)))),
+  row.names=c(colnames(q_data),colnames(r_data)))
+
+# Create Seurat objects
+query<- CreateSeuratObject(count=q_data, meta.data = meta.seurat[colnames(q_data),])
+query <- AddMetaData(query, query0@meta.data)
+Idents(query) <- query$cluster_label
+
+reference <- CreateSeuratObject(count=r_data, meta.data = meta.seurat[colnames(r_data),])
+reference <- AddMetaData(reference, reference0@meta.data)
+Idents(reference) <- reference$cluster_label
+
+reference <- SCTransform(reference, verbose = FALSE, vars.to.regress = vars_ref)
+reference <- RunPCA(reference, npcs = 200)
+reference <- FindNeighbors(reference, dims = 1:nPCs_r)
+reference <- RunUMAP(reference, dims = 1:nPCs_r, return.model=T)
+ 
+query <- SCTransform(query, verbose = FALSE, vars.to.regress = vars_query)
+query <- RunPCA(query, npcs = 200)
+query <- FindNeighbors(query, dims = 1:nPCs_q)
+query <- RunUMAP(query, dims = 1:nPCs_q)
+
+
+# Running the label transfer - with pca
+# neur.anchors <- FindTransferAnchors(reference = reference, query = query, dims = 1:nDims, reference.reduction = "pca", k.anchor = Kanchor)
+# predictions <- TransferData(anchorset = neur.anchors, refdata = reference$cluster_label, dims = 1:nDims, k.weight= Kweight, weight.reduction = "pcaproject")
+# query <- AddMetaData(query, metadata = predictions)
+
+# Running the label transfer - with CCA
+neur.anchors <- FindTransferAnchors(reference = reference, query = query, dims = 1:nDims, reduction = "cca", k.anchor = Kanchor)
+predictions <- TransferData(anchorset = neur.anchors, refdata = reference$cluster_label, dims = 1:nDims, weight.reduction="cca", k.weight= Kweight)
+query <- AddMetaData(query, metadata = predictions)
+
+# Check the anchors
+anchors <- slot(object = neur.anchors, name = "anchors")
+ids_r <- unique(anchors[,1])
+cells_r <- rownames(reference@meta.data)
+ref.anchors <- cells_r[ids_r]
+reference$is.anchor <- "0"
+reference@meta.data$is.anchor[rownames(reference@meta.data) %in% ref.anchors] <- "1"
+reference@meta.data$is.anchor <- as.numeric(reference@meta.data$is.anchor)
+
+ids_q <- unique(anchors[,2])
+cells_q <- rownames(query@meta.data)
+q.anchors <- cells_q[ids_q]
+query$is.anchor <- "0"
+query@meta.data$is.anchor[rownames(query@meta.data) %in% q.anchors] <- "1"
+query@meta.data$is.anchor <- as.numeric(query@meta.data$is.anchor)
+
+
+# Results table
+results <- table(query@meta.data$cluster_label, query@meta.data$predicted.id)
+results.norm <- 100*(results/rowSums(results))
+results.norm_cropped <- results.norm[rowMaxs(results.norm) > 25, colMaxs(results.norm) > 25]
+high_score_cells <- rownames(query@meta.data[query@meta.data$prediction.score.max>thr,])
+
+# Mapping on the UMAP of the reference
+query@tools$TransferData <- NULL
+query <- MapQuery(anchorset = neur.anchors, reference = reference, query = query, refdata = list(celltype = "cluster_label"), reference.reduction = "pca", reduction.model = "umap")
+ref.umap <- query[["ref.umap"]]@cell.embeddings
+
+
+# Plots
+pdf(paste0(date, "_reference_", reference_name,"_query_",query_name,"_Dims",nDims,"_k.anchor",Kanchor,"_k.weight",Kweight,"_thr",thr,".pdf"))
+
+hist(query@meta.data$prediction.score.max)
+
+DimPlot(reference, group.by = "is.anchor", cols = c("grey","red")) + ggtitle("anchors reference")
+DimPlot(query, group.by = "is.anchor", cols = c("grey","red")) + ggtitle("anchors query")
+
+corrplot(results.norm, order="original",tl.pos="lt", method="color", tl.col="black", is.corr=F)
+corrplot(results.norm_cropped, order="original",tl.pos="lt", method="color", tl.col="black", is.corr=F)
+
+DimPlot(query, group.by="cluster_label", label = T) + NoLegend() + ggtitle("Query original clusters")
+DimPlot(query, group.by = "predicted.id", label = T) + NoLegend() + ggtitle("All Predicted IDs")
+
+DimPlot(query, cells=high_score_cells, group.by="cluster_label", label = T) + NoLegend() + ggtitle(paste("Prediction score >", thr))
+DimPlot(query, cells=high_score_cells, group.by = "predicted.id", label = T) + NoLegend() + ggtitle(paste("Prediction score >", thr))
+
+xmin = min(reference[["umap"]]@cell.embeddings[,1],query[["ref.umap"]]@cell.embeddings[,1])
+xmax = max(reference[["umap"]]@cell.embeddings[,1],query[["ref.umap"]]@cell.embeddings[,1])
+ymin = min(reference[["umap"]]@cell.embeddings[,2],query[["ref.umap"]]@cell.embeddings[,2])
+ymax = max(reference[["umap"]]@cell.embeddings[,2],query[["ref.umap"]]@cell.embeddings[,2])
+
+DimPlot(reference, reduction = "umap", group.by = "cluster_label", label = TRUE, label.size = 2,
+    repel = F) + NoLegend() + ggtitle("Reference annotations") + xlim(xmin, xmax) + ylim(ymin, ymax)
+
+cells <- rownames(query@meta.data[query@meta.data$prediction.score.max>thr,])
+
+DimPlot(query, cells=cells, reduction = "ref.umap", group.by = "cluster_label", label = TRUE,
+    label.size = 2, repel = F) + NoLegend() + ggtitle("Query transferred labels") + xlim(xmin, xmax) + ylim(ymin, ymax)
+
+dev.off()
+
+
+# Saving results
+results.list <- list(r_idents_keep, q_idents_keep, predictions, results.norm, ref.umap)
+names(results.list) <- c("identities_reference","identities_query","predictions", "results.norm","ref.umap")
+saveRDS(results.list, file=paste0(date, "_reference_", reference_name,"_query_",query_name,"_Dims",nDims,"_k.anchor",Kanchor,"_k.weight",Kweight,"_thr",thr,".RDS"))
+
+
+pdf(paste0(date, "_plots_reference_",reference_name,"_query_",query_name,"_Dims",nDims,"_k.anchor",Kanchor,"_k.weight",Kweight,"_thr",thr,".pdf"))
+scores = grep("prediction.score.",colnames(query@meta.data), value=TRUE)
+query0 <- AddMetaData(query0, predictions)
+for(i in 1:length(scores)) {
+ abc <- FeaturePlot(query0, scores[i], cells=WhichCells(query0, idents=c(paste0("TEGLU", seq(1,11,by=1))))) +scale_color_gradient(low="grey90",high="violetred4", space ="Lab" , limits=c(0,1)) 
+ print(abc)
+}
+dev.off()
+
+```
+
+## Integration pipeline
+
+```{r}
+# Libraries
+library(Seurat)
+library(SeuratDisk)
+library(corrplot)
+library(MatrixGenerics)
+library(ggplot2)
+
+########################################################################
+# Import files
+reference0 <- readRDS("")
+query0 <- readRDS("")
+eggnog_reference <- read.table(" _eggnog_pruned.txt" , header=T)
+eggnog_query <- read.table(" _eggnog_pruned.txt" , header=T)
+
+# Setting variables
+date = "I1_220114_"
+Sr = "S"
+Sq = "M"  
+reference_name = "salamander"
+query_name = "mouse"
+r_idents_keep = levels(Idents(reference0))[!levels(Idents(reference0)) %in% c( )]
+q_idents_keep = levels(Idents(query0))[!levels(Idents(query0)) %in% c( )]
+vars_ref = c("nFeature_RNA","nCount_RNA","animal","percent.mt")
+vars_query = c("nFeature_RNA","nCount_RNA")
+nPCs_r = 180
+nPCs_q = 75  
+nDims = 50
+Kanchor = 5
+Kweight = 30
+thr = 0.5     # filtering threshold for prediction scores
+
+########################################################################
+# Bring the objects in the same gene space
+
+reference0 <- subset(reference0, idents = r_idents_keep)
+query0 <- subset(query0, idents = q_idents_keep)
+
+r_data <- GetAssayData(reference0, slot="counts")
+r_data <- r_data[rownames(r_data) %in% eggnog_reference[,1],]
+
+q_data <- GetAssayData(query0, slot="counts") 
+q_data <- q_data[rownames(q_data) %in% eggnog_query[,1],]
+
+eggnog_r <- eggnog_reference[eggnog_reference[,1] %in% rownames(r_data),]
+eggnog_q <- eggnog_query[eggnog_query[,1] %in% rownames(q_data),]
+
+r_data <- r_data[order(match(rownames(r_data), eggnog_r[,1])),]
+q_data <- q_data[order(match(rownames(q_data), eggnog_q[,1])),]
+
+all.equal(rownames(r_data),as.character(eggnog_r[,1]))
+all.equal(rownames(q_data),as.character(eggnog_q[,1]))
+
+# replace gene names with eggnog names in expression tables (only one-to-ones)
+rownames(r_data) <- eggnog_r$eggnog 
+rownames(q_data) <- eggnog_q$eggnog 
+dim(r_data)
+dim(q_data)
+
+# Create metadata column with species information
+reference0[["cluster_label"]] <- Idents(object = reference0)
+query0[["cluster_label"]] <- Idents(object = query0)
+
+meta.seurat <- data.frame(
+  cluster_label = c(paste(Sq, as.character(Idents(query0)), sep="-"), paste(Sr,as.character(Idents(reference0)), sep="-")),
+  species = c(rep(query_name, length(Idents(query0))),rep(reference_name, length(Idents(reference0)))),
+  row.names=c(colnames(q_data),colnames(r_data)))
+
+
+# Create Seurat objects
+query<- CreateSeuratObject(count=q_data, meta.data = meta.seurat[colnames(q_data),])
+query <- AddMetaData(query, query0@meta.data)
+Idents(query) <- query$cluster_label
+
+reference <- CreateSeuratObject(count=r_data, meta.data = meta.seurat[colnames(r_data),])
+reference <- AddMetaData(reference, reference0@meta.data)
+Idents(reference) <- reference$cluster_label
+
+reference <- SCTransform(reference, verbose = FALSE, vars.to.regress = vars_ref)
+reference <- RunPCA(reference, npcs = 200)
+reference <- FindNeighbors(reference, dims = 1:nPCs_r)
+reference <- RunUMAP(reference, dims = 1:nPCs_r, return.model=T)
+ 
+query <- SCTransform(query, verbose = FALSE, vars.to.regress = vars_query)
+query <- RunPCA(query, npcs = 200)
+query <- FindNeighbors(query, dims = 1:nPCs_q)
+query <- RunUMAP(query, dims = 1:nPCs_q)
+
+# Running the integration - with CCA
+
+comb.list <- vector("list",2)
+comb.list[[1]]<- CreateSeuratObject(count=query[['RNA']]@counts,
+                                    meta.data = meta.seurat[colnames(query[['RNA']]@counts),])
+comb.list[[2]] <- CreateSeuratObject(count=reference[['RNA']]@counts,
+                                     meta.data = meta.seurat[colnames(reference[['RNA']]@counts),])
+
+for (i in 1:length(comb.list)) {
+  comb.list[[i]] <- SCTransform(comb.list[[i]], verbose = FALSE)
+}
+
+comb.features <- SelectIntegrationFeatures(object.list = comb.list, nfeatures = 1000)
+comb.list.prep <- PrepSCTIntegration(object.list = comb.list, anchor.features = comb.features, verbose = FALSE)
+
+comb.anchors <- FindIntegrationAnchors(object.list = comb.list.prep, normalization.method = "SCT", anchor.features = comb.features, verbose = FALSE, reduction="cca")
+comb.integrated <- IntegrateData(anchorset = comb.anchors, normalization.method = "SCT", verbose = FALSE, dims=1:50)
+
+comb.integrated <- RunPCA(comb.integrated, verbose = FALSE)
+comb.integrated <- RunUMAP(comb.integrated, dims = 1:50)
+comb.integrated <- FindNeighbors(comb.integrated)
+comb.integrated <- FindClusters(comb.integrated)
+
+
+# Check the anchors
+anchors <- slot(object = comb.anchors, name = "anchors")
+ids_r <- unique(anchors[,1])
+cells_r <- rownames(reference@meta.data)
+ref.anchors <- cells_r[ids_r]
+reference$is.anchor <- "0"
+reference@meta.data$is.anchor[rownames(reference@meta.data) %in% ref.anchors] <- "1"
+reference@meta.data$is.anchor <- as.numeric(reference@meta.data$is.anchor)
+
+ids_q <- unique(anchors[,2])
+cells_q <- rownames(query@meta.data)
+q.anchors <- cells_q[ids_q]
+query$is.anchor <- "0"
+query@meta.data$is.anchor[rownames(query@meta.data) %in% q.anchors] <- "1"
+query@meta.data$is.anchor <- as.numeric(query@meta.data$is.anchor)
+
+
+# Plots
+pdf(paste0(date, "_integration_", reference_name,query_name,"_Dims",nDims,"_k.anchor",Kanchor,"_k.weight",Kweight,".pdf"))
+
+DimPlot(reference, group.by = "is.anchor", cols = c("grey","red")) + ggtitle("anchors reference")
+DimPlot(query, group.by = "is.anchor", cols = c("grey","red")) + ggtitle("anchors query")
+
+DimPlot(comb.integrated, group.by="species", label = F) + ggtitle("Species")
+DimPlot(comb.integrated, label = T) + NoLegend() + ggtitle("Integrated clusters")
+DimPlot(comb.integrated, group.by="cluster_label", label=T) + NoLegend()
+
+dev.off()
+
+
+# Saving results
+integrated.umap <- Embeddings(comb.integrated, reduction="umap")
+integrated.metadata <- comb.integrated@meta.data
+results.list <- list(integrated.umap, integrated.metadata)
+names(results.list) <- c("integrated_UMAP","metadata")
+saveRDS(results.list, file=paste0(date, "_integration_", reference_name,"_query_",query_name,"_Dims",nDims,"_k.anchor",Kanchor,"_k.weight",Kweight,".RDS"))
+
+
+```
