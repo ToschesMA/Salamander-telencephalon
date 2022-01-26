@@ -1,0 +1,131 @@
+---
+title: "build tree"
+author: "MAT"
+date: "1/17/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Packages
+
+speciesTree is on github
+
+```{r}
+library(conos)
+library(pagoda2)
+library(speciesTree)
+library(Seurat)
+```
+
+## Load data
+
+integrated is the integrated object
+
+```{r}
+setwd()
+integrated <- readRDS()
+```
+
+expression.matrix is a sparse matrix variable genes x cells
+
+meta_clusters is a named integer vector with cluster assignments for each cell
+
+upperlevelinfo is a named character vector with class assignments for each cell
+
+species_annot is a named character vector with species assignments for each cell
+
+subsampledClusters is a list of 10 meta_clusters with 95% of the original cells
+
+Extract data from integrated Seurat object
+
+```{r}
+# rename clusters
+new.ids <- seq(1, length(levels(Idents(integrated))), by=1)
+names(new.ids) <- levels(Idents(integrated))
+integrated <- RenameIdents(integrated, new.ids)
+```
+
+```{r}
+expression.matrix <- GetAssayData(integrated, slot="data", assay="integrated")
+meta_clusters <- as.integer(Idents(integrated))
+names(meta_clusters) <- names(Idents(integrated))
+upperlevelinfo = NULL
+species_annot <- integrated@meta.data$species
+names(species_annot) <- rownames(integrated@meta.data)
+
+```
+
+
+## Run the code
+
+```{r}
+d <- cluster.matrix.expression.distances(t(expression.matrix), groups=meta_clusters, dist="cor",  useVariablegenes=FALSE,  use.scaled.data=TRUE)
+dendr <- hclust(as.dist(d), method='ward.D2')
+dend <- as.dendrogram(dendr)
+# tree <- buildSpeciesTree(dend=dend, expMatrix=t(expression.matrix), subsampleClusters=NULL,  cls.groups=meta_clusters, upperlevelannot=NULL, species=species_annot, n.cores=10, renameCluster = FALSE)
+```
+
+the function buildSpeciesTree doesn't work, workaround below
+
+```{r}
+dendr <- TransferDend(dend, renameCluster = FALSE, cls.groups = meta_clusters)
+cls.groups <- dendr$new.groups
+dend <- dendr$dendrogram
+leafcontent <- dendr$leafcontent
+stability.measurements = NULL
+dend <- AddTreeAttribute(dend, species_annot, leafcontent)
+dend <- dendSetWidthBysize(dend, scale = 8)
+
+colorpallete <- colorRampPalette(c("blue", "grey", "grey",  "grey", "red"))(101)
+# dend <- dendSetColorByMixing(dend, species_annot, leafContent, colorpallete)
+upperLevelnodes = NULL
+```
+ 
+dendSetColorByMixing doesn't work, debug below
+
+```{r}
+fac <- as.factor(species_annot)
+totalCells <- table(fac)
+
+# cc2col <- function(cc, rate=15, base=0.001){
+#     cc <- round((cc[2:4]/totalCells)/sum(cc[2:4]/totalCells), 2)
+#     cv <- cc
+#     cv <- dexp(cv, rate)
+#     cv <- cv/rate * (1-base)
+#     col <- adjustcolor(rgb(cv[1],cv[2],cv[3], 1), offset = c(0.5, 0.5, 0.5, 0.1))
+#     return(col)
+# }
+
+cc2col <- function(cc, rate=15, base=0.001){
+  cc <- round((cc[2:3]/totalCells)/sum(cc[2:3]/totalCells), 2)
+  cv <- round(cc[1]*100, 0)
+        colorpallete <- colorRampPalette(c("blue", "grey", "grey", "grey", "red"))(101)
+        col <- colorpallete[cv + 1]
+}
+
+cbm <- function(d,fac) {
+    if(is.leaf(d)) {
+      #lc <- fac[leafContent[[as.numeric(attr(d,'label'))]]]
+      cc <- attr(d, "cc")
+      col <- cc2col(cc)
+      attr(d,"edgePar") <- c(attr(d,"edgePar"),list(col=col))
+      return(d);
+    } else {
+      oa <- attributes(d);
+      d <- lapply(d,cbm,fac=fac);
+      attributes(d) <- oa;
+      cc <- attr(d, "cc")
+      col <- cc2col(cc)
+      attr(d,"edgePar") <- c(attr(d,"edgePar"),list(col=col))
+      return(d);
+    }
+  }
+  
+dend <- cbm(dend,species_annot)
+
+tree <- dend
+plot(tree)
+```
