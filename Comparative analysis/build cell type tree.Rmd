@@ -5,13 +5,11 @@ date: "1/17/2022"
 output: html_document
 ---
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-```
+# Based on https://github.com/huqiwen0313/speciesTree
 
 ## Packages
 
-speciesTree is on github
+speciesTree is on github; see https://github.com/huqiwen0313/speciesTree for short tutorial - 3 species case
 
 ```{r}
 library(conos)
