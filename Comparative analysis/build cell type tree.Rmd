@@ -40,7 +40,7 @@ subsampledClusters is a list of 10 meta_clusters with 95% of the original cells
 Extract data from integrated Seurat object
 
 ```{r}
-# rename clusters
+# if clusters get the default Seurat names (0,1,2,3...), rename clusters as below (they will start from 1)
 new.ids <- seq(1, length(levels(Idents(integrated))), by=1)
 names(new.ids) <- levels(Idents(integrated))
 integrated <- RenameIdents(integrated, new.ids)
