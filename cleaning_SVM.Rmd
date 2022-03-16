@@ -1,0 +1,635 @@
+---
+title: "Single-cell RNA-Seq adult dataset cleanup"
+author: Alonso Ortega-Gurrola
+date: | 
+      | Started on 11/09/2021
+      | Compiled: `r format(Sys.Date(), "%B %d, %Y")`
+output:
+  html_document:
+    df_print: paged
+    toc: yes
+    toc_float: no
+  github_document:
+    toc: yes
+  html_notebook:
+    df_print: paged
+    highlight: tango
+    number_sections: yes
+    theme: cosmo
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+editor_options:
+  chunk_output_type: inline
+always_allow_html: yes
+---
+
+Loading the required packages for the rest of the script. Run once per session.
+
+```{r warning=FALSE, message=FALSE}
+library(Seurat)
+library(sctransform)
+library(gridExtra)
+library(dplyr)
+library(tximport)
+library(Matrix)
+library(ggplot2)
+library(stringr)
+library(SeuratWrappers)
+```
+
+## Read big Seurat
+Here we read the *unfiltered* Seurat object with 80,235 cells, processed with SCTransform. 
+And the *filtered* Seurat object with 52,638 cells, processed with SCTransform. The *filtered* version we used a cutoff of **nFeature_RNA > 800** and **percent.mt < 15**. 
+
+For both, UMAp, Neighbors and Clusters were calculated. 
+
+```{r fig.height=8, fig.width=8, fig.align='center'}
+# These two files are already processed with SCT, PCA, UMAP, FindNeighbors and FindClusters. 
+pleuro_unfilter <- readRDS(file = "pleuro_iso_SCT2_all_unfilter.rds")
+pleuro_filter <- readRDS(file = "pleuro_iso_SCT2_all_filter.rds")
+
+par(mfrow=c(1,2))
+DimPlot(pleuro_unfilter, reduction = 'umap', label = TRUE, pt.size = 0.2) + NoLegend()
+DimPlot(pleuro_filter, reduction = 'umap', label = TRUE, pt.size = 0.2) + NoLegend()
+```
+
+## Sample Big Seurat into Small Seurat (10,000 cells, named pleuro.2)
+
+Running FindAllMarkers function from Seurat in order to look at clusters of bad quality on a small subset of cells that are evenly and randomly sampled from the big dataset to avoid memory issues and to optimize the code locally before running it on HPC. **You won't have to do this on the DEVELOPMENTAL dataset**. For screening bad clusters, do *FeaturePlot(object, features = c("percent.mt","nFeature_RNA"))* and take those that have high *percent.mt* and low *nFeature_RNA* to train your classifier.
+
+```{r fig.height=3, fig.width=5, eval=FALSE}
+# You can run this part as an example of how it works
+pleuro.2 <- pleuro_filter[, sample(colnames(pleuro_filter), size = 10000, replace=F)]
+
+#FeaturePlot(new_object, cells = names(new_object@active.ident[new_object@active.ident %in% c("17","30")]), label = T,label.size = 1, pt.size = 0.3, reduction = 'umap', features = c("SATB1","SST")) + NoLegend()
+
+FeaturePlot(pleuro_unfilter, label = T, label.size = 4, pt.size = 0.3, reduction = 'umap', features = c("percent.mt","nFeature_RNA"), ncol = 2) + NoLegend()
+FeaturePlot(pleuro_filter, label = T, label.size = 4, pt.size = 0.3, reduction = 'umap', features = c("percent.mt","nFeature_RNA"), ncol = 2) + NoLegend()
+```
+
+You can also run *FindAllMarkers* function to see whether you can identify clusters that are driven by the expression of mitochondrial genes and/or ribosomal genes and include them as "bad" clusters for the classifier. This function usually takes like 8 hrs locally so I would run it on Ginsburg if you are really invested. 
+
+```{r eval=FALSE, message=FALSE, fig.height=3, fig.width=5}
+all.markers <- FindAllMarkers(pleuro.2)
+
+FeaturePlot(pleuro.2, label = T, label.size = 4, pt.size = 0.3, reduction = 'umap', features = c("percent.mt","nFeature_RNA"), ncol = 2) + NoLegend()
+```
+
+Screening for good and bad cluster on the basis of marker genes. Some clusters do not have good marker genes to be defined as clusters and/or their differences are being driven by ribosomal/mitocondrial genes. 
+
+```{r eval=FALSE}
+cluster0 <- subset(all.markers, cluster == 0, select = c(gene, pct.1, pct.2)) # Good
+cluster0[,4] <- cluster0$pct.1 - cluster0$pct.2
+
+cluster1 <- subset(all.markers, cluster == 1, select = c(gene, pct.1, pct.2)) # Good cluster
+cluster1[,4] <- cluster1$pct.1 - cluster1$pct.2
+
+cluster6 <- subset(all.markers, cluster == 6, select = c(gene, pct.1, pct.2)) # 
+cluster6[,4] <- cluster6$pct.1 - cluster6$pct.2
+
+cluster17 <- subset(all.markers, cluster == 17, select = c(gene, pct.1, pct.2)) # BAD RIBO
+cluster17[,4] <- cluster17$pct.1 - cluster17$pct.2
+
+cluster21 <- subset(all.markers, cluster == 21, select = c(gene, pct.1, pct.2)) # Good
+cluster21[,4] <- cluster21$pct.1 - cluster21$pct.2
+
+cluster24 <- subset(all.markers, cluster == 24, select = c(gene, pct.1, pct.2))
+cluster24[,4] <- cluster24$pct.1 - cluster24$pct.2
+
+cluster26 <- subset(all.markers, cluster == 26, select = c(gene, pct.1, pct.2))
+cluster26[,4] <- cluster26$pct.1 - cluster26$pct.2
+
+cluster29 <- subset(all.markers, cluster == 29, select = c(gene, pct.1, pct.2))
+cluster29[,4] <- cluster29$pct.1 - cluster29$pct.2
+
+cluster40 <- subset(all.markers, cluster == 40, select = c(gene, pct.1, pct.2))
+cluster40[,4] <- cluster40$pct.1 - cluster40$pct.2
+
+cluster41 <- subset(all.markers, cluster == 41, select = c(gene, pct.1, pct.2))
+cluster41[,4] <- cluster41$pct.1 - cluster41$pct.2
+
+cluster50 <- subset(all.markers, cluster == 50, select = c(gene, pct.1, pct.2))
+cluster50[,4] <- cluster50$pct.1 - cluster50$pct.2
+
+cluster52 <- subset(all.markers, cluster == 52, select = c(gene, pct.1, pct.2))
+cluster52[,4] <- cluster52$pct.1 - cluster52$pct.2
+```
+
+## Creating meta.data for the classifier
+
+I will use **all the bad clusters** from this small subset of cells (10,000 cells). For the method to work properly, you have to select all the clusters that look bad, since it will consider as "good" all the rest of the cells. Once you have identified all the bad clusters, make sure to write all their identities in the code.
+You will want to train your set with ~10% of the total number of "bad cells" that you have (look at *length(bad.names))* or *table(object@meta.data$seurat_clusters)* and sum the bad clusters). 
+
+```{r}
+ribo.genes <- read.table(file = "/Users/ao2721/Documents/Tosches Lab /R/SingleCellTosches/ribosomal_genes.txt")
+ribo.genes <- as.character(ribo.genes[,1])
+
+ribo.genes <- ribo.genes[ribo.genes %in% rownames(pleuro.2)]
+pleuro.2[["percent.rb"]] <- PercentageFeatureSet(pleuro.2, features = ribo.genes)
+
+# Create a data frame containing metadata
+data.info <- pleuro.2@meta.data[,c("nCount_RNA","nFeature_RNA","percent.mt","percent.rb")]
+cell.names <- colnames(pleuro.2)
+
+# Here you add all the idents from bad clusters
+bad.names <- colnames(subset(x = pleuro.2, idents = c(0, 1, 42, 49, 44, 5, 21, 75, 24, 64, 6, 34, 66)))
+good.names <- cell.names[!cell.names %in% bad.names] # The good clusters must be the rest of the cells
+
+train.bad.names<-sample(bad.names,210) # selects randomly X bad cells for training set. You will want to train your set with ~10% of the total number of "bad cells" that you have (look at length(bad.names))
+train.good.names<-sample(good.names,210) # selects randomly X good cells for training set. Keep the same number of cells as above.
+
+train.bad<-data.info[train.bad.names,]
+train.good<-data.info[train.good.names,]
+train<-rbind(train.good,train.bad)
+ytrain <- matrix(c(rep(1,210),rep(-1,210))) # Limits are the same as your number of trainig cells
+
+train.final = data.frame(train, ytrain=as.factor(ytrain))
+```
+
+## Training the classifier
+
+```{r}
+library(e1071)
+svmfit=svm(ytrain~., data=train.final, kernel="linear", cost=0.1, scale=F)
+
+set.seed (1)
+tune.out=tune(svm,ytrain~.,data=train.final,kernel="linear", ranges=list(cost=c(0.1,1,10,100,500)))
+summary(tune.out)
+
+
+bestmod=tune.out$best.model
+summary(bestmod)
+
+test.bad.names<-bad.names[!bad.names %in% train.bad.names] 
+test.good.names<-good.names[!good.names %in% train.good.names] 
+test.bad<-data.info[test.bad.names,] 
+test.good<-data.info[test.good.names,] 
+test<-rbind(test.good,test.bad) 
+
+test<-data.info[!rownames(data.info) %in% rownames(train),] 
+
+test<-as.matrix(test)
+ytest<-matrix(c(rep(1,length(test.good.names)),rep(-1,length(test.bad.names)))) 
+
+test.final = data.frame(test, ytest=as.factor(ytest))
+
+ypred=predict(bestmod,test.final)
+table(predict=ypred, truth=test.final$ytest)
+
+ypred<-as.data.frame(ypred)
+```
+
+## Adding the SVM classification to Seurat Object.
+
+```{r fig.height=3, fig.width=6}
+pleuro.2$ypred <- ypred
+
+pred<-as.data.frame(pleuro.2$ypred)
+rownames(pred)<-rownames(pleuro.2[[]])
+pred[train.bad.names,]<-"-1"
+pred[train.good.names,]<-"1"
+colnames(pred)<-c("svm_class")
+pleuro.2$svm_class <- pred
+
+DimPlot(pleuro.2, split.by="svm_class", pt.size=0.7, label = T, group.by = "library") #+ NoLegend()
+```
+## How many cells were thrown away? 
+
+```{r}
+# saveRDS(pleuro.2, file = "pleuro2_cleanup.rds")
+table(pleuro.2@meta.data$svm_class)
+```
+
+```{r fig.height=3, fig.width=3}
+pleuro.3 <- subset(pleuro.2, cells=rownames(pleuro.2@meta.data[pleuro.2@meta.data$svm_class=="1",]))
+
+pleuro.2 <- pleuro.3
+rm(pleuro.3)
+
+pleuro.2 <- subset(pleuro.2, cells=rownames(pleuro.2@meta.data[pleuro.2@meta.data$nFeature_RNA>800,]))
+
+pleuro.2 <- SCTransform(pleuro.2, vars.to.regress = c("percent.mt","nFeature_RNA","nCount_RNA","animal"), verbose = FALSE)
+
+pleuro.2 <- RunPCA(pleuro.2, npcs=200)
+
+ElbowPlot(pleuro.2, ndims=200)
+ndims= 120
+
+pleuro.2 <- RunUMAP(pleuro.2, dims=1:ndims)
+pleuro.2 <- FindNeighbors(pleuro.2, dims=1:ndims)
+
+pleuro.2 <- FindClusters(pleuro.2, resolution = 2)
+
+DimPlot(pleuro.2, reduction="umap", label=T, pt.size = 0.3) + NoLegend()
+```
+
+I ran AllMarkers as a form of sanity check, just to see whether cluster 0 (which seemed like a blob in the middle) was a good cluster or not. **Do not run this locally.** 
+
+```{r eval=FALSE}
+all.markers <-FindAllMarkers(pleuro.2)
+cluster0 <- subset(all.markers, cluster == 0, select = c(gene, pct.1, pct.2)) # Bad cluster
+cluster0[,4] <- cluster0$pct.1 - cluster0$pct.2
+```
+
+Now it is a good cluster.
+
+## From here, I used the above code but with the large datasets (80,235 and 52,638)
+
+I used the exact same code, only that this time I used the large Seurat objects and ran everything on Ginsburg. I am reading the output file from that code with *36,116 cells for pre-filtered* and *41,657 for unfiltered*. For this part, I tried different nPCs (ndims) in the code with different resolution. 
+
+```{r fig.height=4, fig.width=4}
+pleuro <- readRDS("pleuro_clean_iso_SCT_all_filter.rds")
+#pleuro.uf <- readRDS("pleuro_clean_iso_SCT_all_unfilter.rds")
+
+pleuro <- RunPCA(pleuro, npcs=200)
+#pleuro.uf <- RunPCA(pleuro.uf, npcs=200)
+
+ElbowPlot(pleuro, ndims=200)
+#ElbowPlot(pleuro.uf, ndims=200)
+
+ndims = 50
+
+pleuro <- RunUMAP(pleuro, dims=1:ndims)
+#pleuro.uf <- RunUMAP(pleuro.uf, dims=1:ndims)
+
+pleuro <- FindNeighbors(pleuro, dims=1:ndims)
+#pleuro.uf <- FindNeighbors(pleuro.uf, dims=1:ndims)
+
+pleuro <- FindClusters(pleuro, resolution = 2)
+#pleuro.uf <- FindClusters(pleuro.uf, resolution = 2)
+
+DimPlot(pleuro, reduction="umap", label=T, pt.size = 0.1) + NoLegend()
+#DimPlot(pleuro.uf, reduction="umap", label=T, pt.size = 0.1) + NoLegend() + ggtitle('Unfiltered')
+```
+
+After looking at the code together and long deliberation, we chose to stick to **cluster resolution = 2**. Next, we will subset this object to keep only the neurons. The rest of the work to be done with this object is showing neuronal and non-neuronal cells in a general way. 
+
+```{r}
+png(paste0("UMAP_byanimal.png"), width=48, height=12, units = "in", res=400)
+DimPlot(pleuro, reduction="umap", label=F, pt.size = 0.1, split.by = "animal") + NoLegend()
+dev.off()
+```
+
+```{r}
+pdf(paste0("UMAP_byanimal.pdf"), width=48, height=12)
+DimPlot(pleuro, reduction="umap", label=F, pt.size = 0.1, split.by = "animal") + NoLegend()
+dev.off()
+```
+
+# FindAllMarkers for Subset pleuro (37K)
+
+```{r eval=FALSE}
+# RUN IN CLUSTER
+all.markers <- FindAllMarkers(pleuro)
+```
+
+# FeaturePLots
+
+A couple more FeaturePlots as we continue to check whether everything is ok. 
+
+```{r fig.height=4, fig.width=4}
+FeaturePlot(pleuro, c("SNAP25","NEUROD6","DLX5","GLUL"), pt.size=0.3)
+FeaturePlot(pleuro, c("NPY","CBLN4","SP9","SOX6"), pt.size=0.3)
+FeaturePlot(pleuro, c("ZNF536","LHX6","ADARB2","HPCA"), pt.size=0.3)
+```
+
+# Quality control of the final dataset
+
+## VlnPlot
+
+Violin plots for nFeature, nCount and percent.mt grouped by animal and by library, in the cleaned dataset. 
+
+```{r fig.height=3, fig.width=6}
+png(paste0("Vln_quality_cluster2.png"), width=10, height=6, units = "in", res=400)
+VlnPlot(pleuro, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), pt.size = 0, group.by = "animal", ncol = 3)
+dev.off()
+```
+```{r}
+pdf(paste0("Vln_quality_cluster2.pdf"), width=10, height=6)
+VlnPlot(pleuro, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), pt.size = 0, group.by = "animal", ncol = 3)
+dev.off()
+```
+
+```{r fig.height=6, fig.width=12}
+VlnPlot(pleuro, features = c("nFeature_RNA", "nCount_RNA"), group.by = "library", ncol = 2)
+```
+
+```{r eval=FALSE}
+saveRDS(pleuro, file = "pleuro_f_final.rds")
+#saveRDS(pleuro.uf, file = "pleuro_uf_final.rds")
+```
+
+```{r fig.height=4, fig.width=4}
+pleuro <- RunPCA(pleuro, npcs=200)
+
+ElbowPlot(pleuro, ndims=200)
+
+ndims = 50
+
+pleuro <- RunUMAP(pleuro, dims=1:ndims)
+
+pleuro <- FindNeighbors(pleuro, dims=1:ndims)
+
+pleuro <- readRDS("pleuro_f_final.rds")
+pleuro <- FindClusters(pleuro, resolution = 0.3)
+
+#clu9 <- WhichCells(pleuro, idents = '39')
+DimPlot(pleuro, reduction="umap", label=T, pt.size = 0.1, label.size = 3) + NoLegend()
+
+# FindAllMarkers was run on Ginsburg, csv was saved and loaded in here 
+all.markers <- read.csv(file = "all_markers_pleuro_f_final.csv", header = TRUE)
+```
+
+Getting the information by cluster. 
+
+```{r}
+all.markers <- read.csv(file = "all_markers_neurons_res2.csv")
+list_markers <- list()
+a <- 0
+for(i in 1:max(all.markers$cluster)) {
+  cluster <- subset(all.markers, cluster == a, select = c(gene, pct.1, pct.2))
+  cluster[,4] <- cluster$pct.1 - cluster$pct.2
+  list_markers[[i]] <- cluster
+  a <- a + 1
+}
+```
+
+
+```{r fig.height=8, fig.width=8}
+FeaturePlot(pleuro, features = c("SLC17A7","GAD1","SLC7A6","GAD2"), pt.size = 0.5, label = T, label.size = 4)
+```
+
+# Generating a merged salamander dataset by general cell type
+
+```{r}
+new.cluster.ids <- c('Excitatory telencephalic' #0
+,'Excitatory telencephalic'
+,'Excitatory telencephalic'
+,'Inhibitory telencephalic'
+,'Inhibitory telencephalic'
+,'Inhibitory telencephalic'
+,'Inhibitory telencephalic'
+,'Inhibitory telencephalic'
+,'Inhibitory telencephalic'
+,'Excitatory telencephalic'
+,'Inhibitory telencephalic' #10
+,'Immature neurons'
+,'Excitatory telencephalic' #12
+,'Inhibitory telencephalic'
+,'Excitatory telencephalic'
+,'Excitatory telencephalic' 
+,'Excitatory telencephalic'
+,'Excitatory telencephalic'
+,'Inhibitory telencephalic'
+,'Inhibitory telencephalic' #19
+,'Oligodendrocyte precursor cells' 
+,'Ependymoglia'
+,'Inhibitory telencephalic' #22
+,'Ependymoglia'
+,'Inhibitory telencephalic' #24
+,'Inhibitory telencephalic'
+,'Inhibitory telencephalic'
+,'Inhibitory telencephalic'
+,'Non-telencephalic'
+,'Inhibitory telencephalic'
+,'Excitatory telencephalic'
+,'Excitatory telencephalic'
+,'Inhibitory telencephalic'
+,'Inhibitory telencephalic' #33
+,'Microglia' 
+,'Excitatory telencephalic'#35
+,'Ependymoglia'
+,'Excitatory telencephalic' #37
+,'Excitatory telencephalic'
+,'Inhibitory telencephalic'
+,'Inhibitory telencephalic'
+,'Inhibitory telencephalic'
+,'Excitatory telencephalic'
+,'Inhibitory telencephalic' #43
+,'Vascular leptomeningeal cells' 
+,'Inhibitory telencephalic' #45
+,'Non-telencephalic'
+,'Inhibitory telencephalic'
+,'Inhibitory telencephalic'
+,'Inhibitory telencephalic'
+,'Non-telencephalic' 
+,'Inhibitory telencephalic'
+,'Inhibitory telencephalic' #52
+,'Immature neurons'
+,'Inhibitory telencephalic' #54
+,'Inhibitory telencephalic'
+,'Excitatory telencephalic'
+,'Excitatory telencephalic'
+,'Inhibitory telencephalic'
+,'Non-telencephalic'
+,'Inhibitory telencephalic' #60
+,'Olfactory ensheating cells'
+,'Inhibitory telencephalic' #62
+,'Perivascular macrophages'
+,'Inhibitory telencephalic' #64
+,'Inhibitory telencephalic'
+,'Oligodendrocytes'
+,'Non-telencephalic'
+,'Inhibitory telencephalic'
+,'Inhibitory telencephalic'
+,'Inhibitory telencephalic')
+names(new.cluster.ids) <- levels(pleuro)
+pleuro.dotplot <- RenameIdents(pleuro, new.cluster.ids)
+
+#saveRDS(pleuro.dotplot, file = "pleuro_dotplot.rds")
+```
+
+# Loading merged pleuro object and ordering the data
+
+Setting the color palette for salamander UMAP, ordering the clusters and generating UMAP and DotPlot.
+
+```{r fig.height=5, fig.width=5}
+pleuro.dotplot <- readRDS("pleuro_dotplot.rds")
+levels(pleuro.dotplot) <- c("Perivascular macrophages", "Microglia", "Olfactory ensheating cells", "Vascular leptomeningeal cells", "Oligodendrocytes",  "Oligodendrocyte precursor cells","Ependymoglia", "Immature neurons", "Non-telencephalic", "Inhibitory telencephalic", "Excitatory telencephalic")
+
+order.list <- list("Perivascular macrophages", "Microglia", "Olfactory ensheating cells", "Vascular leptomeningeal cells", "Oligodendrocytes",  "Oligodendrocyte precursor cells","Ependymoglia", "Immature neurons", "Non-telencephalic", "Inhibitory telencephalic", "Excitatory telencephalic")
+
+pal <- c("#00A5FF", "#F8766D", "#00B81F", "#00C0B8", "#E76BF3", "#9590FF", "#7CAE00", "#E7861B", "#00BE6C", "#BB9D00", "#C77CFF")
+
+png(paste0("generalUMAP.png"), width=10, height=10, units = "in", res=400)
+DimPlot(pleuro.dotplot, pt.size = 0.05, label = F, reduction = 'umap', cols = pal, order = order.list) + NoLegend()
+dev.off()
+```
+
+## Code for general DotPlot
+
+```{r fig.height=3, fig.width=5}
+DotPlot(pleuro.dotplot, features = c("SNAP25", "SYT1", "RBFOX3", "FOXG1", "SLC17A7", "GAD1","SLC17A6",  "SOX4", "SOX9", "SOX2", "GFAP", "PDGFRA", "NINJ2", "COL1A2","PRSS56", "C1QB", "LCP1"), idents = c("Excitatory telencephalic", "Inhibitory telencephalic", "Non-telencephalic", "Immature neurons", "Ependymoglia", "Oligodendrocyte precursor cells", "Vascular leptomeningeal cells", "Microglia", "Olfactory ensheating cells", "Oligodendrocytes", "Perivascular macrophages")) + RotatedAxis()
+```
+
+```{r}
+png(filename = "dotplot_fig1.png", width = 10, height = 6, units = "in", res = 400)
+DotPlot(pleuro.dotplot, features = c("SNAP25", "SYT1", "RBFOX3", "FOXG1", "SLC17A7", "GAD1","SLC17A6",  "SOX4", "SOX9", "SOX2", "GFAP", "PDGFRA", "NINJ2", "COL1A2","PRSS56", "C1QB", "LCP1"), idents = c("Excitatory telencephalic", "Inhibitory telencephalic", "Non-telencephalic", "Immature neurons", "Ependymoglia", "Oligodendrocyte precursor cells", "Vascular leptomeningeal cells", "Microglia", "Olfactory ensheating cells", "Oligodendrocytes", "Perivascular macrophages")) + RotatedAxis()
+dev.off()
+```
+
+```{r}
+pdf(file = "dotplot_fig1.pdf", width = 10, height = 6)
+DotPlot(pleuro.dotplot, features = c("SNAP25", "SYT1", "RBFOX3", "FOXG1", "SLC17A7", "GAD1","SLC17A6",  "SOX4", "SOX9", "SOX2", "GFAP", "PDGFRA", "NINJ2", "COL1A2","PRSS56", "C1QB", "LCP1"), idents = c("Excitatory telencephalic", "Inhibitory telencephalic", "Non-telencephalic", "Immature neurons", "Ependymoglia", "Oligodendrocyte precursor cells", "Vascular leptomeningeal cells", "Microglia", "Olfactory ensheating cells", "Oligodendrocytes", "Perivascular macrophages")) + RotatedAxis()
+dev.off()
+```
+
+# Subsetting Neurons
+
+We subsetted neurons on the basis of neuronal gene expression (SYT1, SNAP25, SLC17A7, SLC17A6, GAD1, GAD2) and re-ran the pipeline for clustering. We RunPCA with 400 pcs, analyzed the ElbowPlot and determined 180 as a good number to calculate UMAP, Neighbors. In terms of clustering, after long deliberation, we settled to **res = 6** as it captured most of the cell diversity. Some adjustments to the neuronal object will be made depending on the details of the clustering. 
+
+```{r fig.height=10, fig.width=10}
+neurons <- subset(pleuro, idents = c('0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '12', '13', '14', '15', '16', '17', '18', '19', '22', '24', '25', '26', '27', '28', '29', '30', '31', '32', '33', '35', '37', '38', '39', '40', '41', '42', '43', '45', '46', '47', '48', '49', '50', '51', '52', '54', '55', '56', '57', '58', '59', '60', '62', '64', '65', '66', '67', '68', '69', '70'))
+
+#neurons <- RunPCA(neurons, npcs = 400)
+
+ElbowPlot(neurons, ndims = 350)
+
+nPCs = 180
+  
+neurons <- RunUMAP(neurons, dims = 1:nPCs, verbose = FALSE)
+
+neurons <- FindNeighbors(neurons, dims = 1:nPCs, verbose = FALSE)
+
+neurons <- FindClusters(neurons, resolution = 6, verbose = FALSE)
+
+DimPlot(neurons, label = TRUE, reduction = 'umap', label.size = 6, pt.size = 0.7) + NoLegend()
+
+VlnPlot(neurons, features = c("nFeature_RNA", "nCount_RNA"), split.by = "seurat_clusters")
+#saveRDS(neurons, file = "neurons_180pcs.rds")
+```
+
+The rest of the neuronal file will be processed in a new R Markdown file. 
+
+# For Glial analysis
+
+We will take only the glial identities in the dataset for a superficial analysis. We are taking all the non-neuronal cells in the dataset and building a heatmap based on known glial gene markers. 
+
+```{r fig.height=5, fig.width=10, warning=FALSE}
+library(ComplexHeatmap)
+glia <- subset(pleuro.dotplot, idents = c("Microglia", "Olfactory ensheating cells", "Oligodendrocytes",  "Oligodendrocyte precursor cells","Ependymoglia"))
+
+glial.genes <- c("PDGFRA", "ITPR2", "BAMBI", "OLIG1", "OLIG2", "SOX10", "NKX2-2", "OMG", "CNP", "CD9", "NKX6-2", "MBP", "PLP1", "ERMN", "CLDN11", "FGFR2", "ID1", "ID3", "SOX9", "SOX2", "SOX21", "FGFR3", "SALL3", "PAX6", "EMX2", "VIM", "SLC1A3", "GFAP", "AQP4", "S100B", "GLUL", "GJA1", "FOXJ1", "ZMYND10", "RFX3", "EFHC1", "SPAG6", "SPAG17", "SPA17", "WDR35", "CCDC135", "TEKT1", "TEKT4", "TTLL9", "RIBC2", "RSPH1", "DNAAF1", "DAW1", "CCDC39", "NEK5", "SPATA17", "IQCG", "IRF8", "HCLS1", "SPI1", "C1QC", "APOE", "RGS1", "RGS18", "ALOX5", "CD83")
+
+glial.genes.2 <- glial.genes[glial.genes %in% rownames(glia@assays$RNA)]
+
+heatdata <- as.matrix(glia@assays$RNA@data[rownames(glia@assays$RNA@data) %in% glial.genes.2])
+heatdata_scale = t(scale(t(heatdata)))
+
+oec.markers <- FindMarkers(pleuro.dotplot, ident.1 = "Olfactory ensheating cells")
+
+oec.markers$diff <- NULL
+diff <- oec.markers$pct.1 - oec.markers$pct.2
+#FC <- abs(neurons.markers$avg_log2FC)
+oec.markers <- cbind(oec.markers, diff)
+
+oec.markers %>% top_n(50, diff) -> top50.diff
+```
+
+# BarPlot
+
+```{r fig.height=4, fig.width=4}
+animals <- table(pleuro.dotplot@meta.data$animal)
+header <- c("animal", "freq")
+animals <- as.data.frame(animals)
+colnames(animals) <- header
+
+x <-  ggplot(animals, aes(x = animal, y = freq)) + geom_bar(stat = "identity", width=0.75, fill="steelblue") +
+      theme_classic() +
+      scale_y_continuous(expand = c(0, 0)) +
+      labs(title="Number of cells per animal", x="", y = "Number of cells") +
+      geom_text(aes(label=freq), vjust=-0.5, size=2) +
+      theme(legend.position="none", axis.text.x = element_text(angle = 90))
+
+x
+```
+```{r fig.width=2, fig.height=3}
+data <- table(pleuro@meta.data$animal)
+data <- as.data.frame(data)
+
+percentage <- as.integer(rep(0, 5))
+a = 1
+for(i in 1:length(data$Var1)) {
+  x <- (data$Freq[a] / sum(data$Freq)) * 100
+  percentage[a] <- x
+  a <- a + 1
+}
+data$percentage <- percentage
+
+library(tidyverse)
+total <- data$percentage
+animal <- as.character(data$Var1)
+bar <- tibble(total, animal)
+
+library(RColorBrewer)
+coul <- brewer.pal(5, "Pastel2") 
+
+x <-  ggplot(bar, aes(x = "", y = total, fill = animal)) + geom_bar(stat = "identity", width=0.75) +
+      theme_classic() +
+      scale_y_continuous(expand = c(0, 0)) +
+      labs(title="Percentage of cells per animal", x="", y = "Percentage of cells") +
+      scale_fill_manual(values = coul)
+
+x
+```
+
+```{r fig.height=3, fig.width=10}
+png(filename = "pleuro_stackedbarplot_animal_Wlegend.png", width = 3, height = 5, units = "in", res = 400)
+x
+dev.off()
+```
+
+```{r fig.height=3, fig.width=10}
+pdf(file = "pleuro_stackedbarplot_animal_Wlegend.pdf", width = 3, height = 5)
+x
+dev.off()
+```
+
+```{r fig.height=3, fig.width=10}
+pleuro.dotplot <- readRDS(file = "pleuro_dotplot.rds")
+data <- table(pleuro.dotplot@meta.data$animal, Idents(pleuro.dotplot))
+data_percentage <- apply(data, 2, function(x){x*100/sum(x,na.rm=T)})
+
+library(RColorBrewer)
+coul <- brewer.pal(5, "Pastel2") 
+ynames <- colnames(data_percentage)
+```
+
+```{r fig.height=3, fig.width=10}
+par(oma=c(3,1,1,2) + 0.5)
+barplot(data_percentage, 
+        col = coul, 
+        las =2, 
+        font.axis = 2, 
+        cex.lab = 0.1, 
+        legend.text = rownames(data_percentage),
+        args.legend = list(x = "right", inset=c(-0.01,0), xpd = TRUE))
+```
+
+```{r fig.height=3, fig.width=10}
+png(filename = "pleuro_barplot_animal_Wlegend.png", width = 30, height = 7, units = "in", res = 400)
+par(oma=c(1,1,1,2) + 0.5)
+barplot(data_percentage, 
+        col = coul, 
+        las = 2, 
+        font.axis = 2, 
+        cex.lab = 0.1, 
+        legend.text = rownames(data_percentage),
+        args.legend = list(x = "right", inset=c(-0.01,0), xpd = TRUE))
+dev.off()
+```
+
+```{r fig.height=3, fig.width=10}
+pdf(file = "pleuro_barplot_animal_Wlegend.pdf", width = 30, height = 7)
+par(oma=c(1,1,1,2) + 0.5)
+barplot(data_percentage, 
+        col = coul, 
+        las =2, 
+        font.axis = 2, 
+        cex.lab = 0.1, 
+        legend.text = rownames(data_percentage),
+        args.legend = list(x = "right", inset=c(-0.01,0), xpd = TRUE))
+dev.off()
+```
