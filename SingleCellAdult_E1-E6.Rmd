@@ -1,0 +1,1492 @@
+---
+title: "Single-cell RNA-Seq adult dataset"
+author: Alonso Ortega-Gurrola
+date: | 
+      | Started on 05/18/2021
+      | Compiled: `r format(Sys.Date(), "%B %d, %Y")`
+output:
+  html_document:
+    df_print: paged
+    toc: yes
+    toc_float: no
+  github_document:
+    toc: yes
+  html_notebook:
+    df_print: paged
+    highlight: tango
+    number_sections: yes
+    theme: cosmo
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+editor_options:
+  chunk_output_type: inline
+always_allow_html: yes
+---
+
+## Loading required packages
+
+```{r message=FALSE, warning=FALSE}
+library(Seurat)
+library(sctransform)
+library(gridExtra)
+library(dplyr)
+library(tximport)
+library(Matrix)
+library(ggplot2)
+library(stringr)
+library(SeuratWrappers)
+# remotes::install_github('satijalab/seurat-wrappers')
+```
+
+# Library 1: QC
+
+```{r message=FALSE, warning=FALSE}
+lib1_1 <- file.path("E1_1_isoseq/alevin/quants_mat.gz")
+txi_lib1_1 <- tximport(lib1_1, type="alevin")
+counts1_1 <- txi_lib1_1[[2]]
+sum_1_1 <- colSums(counts1_1)
+sorted_1_1 <- sort(sum_1_1,decreasing = TRUE)
+
+lib1_2 <- file.path("E1_2_isoseq/alevin/quants_mat.gz")
+txi_lib1_2 <- tximport(lib1_2, type="alevin")
+counts1_2 <- txi_lib1_2[[2]]
+sum_1_2 <- colSums(counts1_2)
+sorted_1_2 <- sort(sum_1_2,decreasing = TRUE)
+
+lib1_3 <- file.path("E1_3_isoseq/alevin/quants_mat.gz")
+txi_lib1_3 <- tximport(lib1_3, type="alevin")
+counts1_3 <- txi_lib1_3[[2]]
+sum_1_3 <- colSums(counts1_3)
+sorted_1_3 <- sort(sum_1_3,decreasing = TRUE)
+
+lib1_4 <- file.path("E1_4_isoseq/alevin/quants_mat.gz")
+txi_lib1_4 <- tximport(lib1_4, type="alevin")
+counts1_4 <- txi_lib1_4[[2]]
+sum_1_4 <- colSums(counts1_4)
+sorted_1_4 <- sort(sum_1_4,decreasing = TRUE)
+```
+
+
+```{r fig.height=20, fig.width=15,message=FALSE, warning=FALSE}
+par(mfrow=c(2,2))
+plot(sorted_1_1, 
+     xlab = "Barcodes",
+     ylab = "UMI counts",
+     main = "Barcode Rank Plot E1.1",
+     col = ifelse(sorted_1_1 > 400,'red','black'),
+     xlim = c(1,length(sorted_1_1)), 
+     ylim = c(1,sorted_1_1[[1]]),
+     log = "xy")
+plot(sorted_1_2, 
+     xlab = "Barcodes",
+     ylab = "UMI counts",
+     main = "Barcode Rank Plot E1.2",
+     col = ifelse(sorted_1_2 > 400,'red','black'),
+     xlim = c(1,length(sorted_1_2)), 
+     ylim = c(1,sorted_1_2[[1]]),
+     log = "xy")
+plot(sorted_1_3, 
+     xlab = "Barcodes",
+     ylab = "UMI counts",
+     main = "Barcode Rank Plot E1.3",
+     col = ifelse(sorted_1_3 > 400,'red','black'),
+     xlim = c(1,length(sorted_1_3)), 
+     ylim = c(1,sorted_1_3[[1]]),
+     log = "xy")
+plot(sorted_1_4, 
+     xlab = "Barcodes",
+     ylab = "UMI counts",
+     main = "Barcode Rank Plot E1.4",
+     col = ifelse(sorted_1_4 > 400,'red','black'),
+     xlim = c(1,length(sorted_1_4)), 
+     ylim = c(1,sorted_1_4[[1]]),
+     log = "xy")
+```
+
+## Filtering and UMIs per cell E1
+
+```{r}
+# for filtering out low UMI counts (<= 400)
+keep1_1 <- colSums(counts1_1) > 400
+counts1_1_filter <- counts1_1[,keep1_1]
+
+sum_1_1.1 <- colSums(counts1_1_filter)
+range(sum_1_1.1)
+
+UMIspercell1.1_sorted <- sort(sum_1_1.1,decreasing = TRUE)
+
+keep1_2 <- colSums(counts1_2) > 400
+counts1_2_filter <- counts1_2[,keep1_2]
+
+sum_1_2.1 <- colSums(counts1_2_filter)
+range(sum_1_2.1)
+
+UMIspercell1.2_sorted <- sort(sum_1_2.1,decreasing = TRUE)
+
+keep1_3 <- colSums(counts1_3) > 400
+counts1_3_filter <- counts1_3[,keep1_3]
+
+sum_1_3.1 <- colSums(counts1_3_filter)
+range(sum_1_3.1)
+
+UMIspercell1.3_sorted <- sort(sum_1_3.1,decreasing = TRUE)
+
+keep1_4 <- colSums(counts1_4) > 400
+counts1_4_filter <- counts1_4[,keep1_4]
+
+sum_1_4.1 <- colSums(counts1_4_filter)
+range(sum_1_4.1)
+
+UMIspercell1.4_sorted <- sort(sum_1_4.1,decreasing = TRUE)
+```
+
+```{r fig.height=15, fig.width=15,message=FALSE, warning=FALSE}
+par(mfrow=c(2,2))
+p1.1.1 <- plot(UMIspercell1.1_sorted, 
+     xlab = "Cells",
+     ylab = "UMI counts",
+     main = "Frequency distribution of UMIs per cell E1.1",
+     xlim = c(1,length(UMIspercell1.1_sorted)), 
+     ylim = c(1,UMIspercell1.1_sorted[[1]]),
+     )
+p1.2.1 <- plot(UMIspercell1.2_sorted, 
+     xlab = "Cells",
+     ylab = "UMI counts",
+     main = "Frequency distribution of UMIs per cell E1.2",
+     xlim = c(1,length(UMIspercell1.2_sorted)), 
+     ylim = c(1,UMIspercell1.2_sorted[[1]]),
+     )
+p1.3.1 <- plot(UMIspercell1.3_sorted, 
+     xlab = "Cells",
+     ylab = "UMI counts",
+     main = "Frequency distribution of UMIs per cell E1.3",
+     xlim = c(1,length(UMIspercell1.3_sorted)), 
+     ylim = c(1,UMIspercell1.3_sorted[[1]]),
+     )
+p1.4.1 <- plot(UMIspercell1.4_sorted, 
+     xlab = "Cells",
+     ylab = "UMI counts",
+     main = "Frequency distribution of UMIs per cell E1.4",
+     xlim = c(1,length(UMIspercell1.4_sorted)), 
+     ylim = c(1,UMIspercell1.4_sorted[[1]]),
+     )
+```
+
+```{r fig.height=15, fig.width=15,message=FALSE, warning=FALSE}
+par(mfrow=c(2,2))
+p1.1.2 <- hist(log10(UMIspercell1.1_sorted), breaks = 200, xlab = "UMIs expressed", main = "Distribution of UMIs")
+p1.2.2 <- hist(log10(UMIspercell1.2_sorted), breaks = 200, xlab = "UMIs expressed", main = "Distribution of UMIs")
+p1.3.2 <- hist(log10(UMIspercell1.3_sorted), breaks = 200, xlab = "UMIs expressed", main = "Distribution of UMIs")
+p1.4.2 <- hist(log10(UMIspercell1.4_sorted), breaks = 200, xlab = "UMIs expressed", main = "Distribution of UMIs")
+```
+
+## Genes per cell E1
+
+```{r}
+genespercell1.1 <- apply(counts1_1_filter > 0, 2, sum)
+genespercell1.2 <- apply(counts1_2_filter > 0, 2, sum)
+genespercell1.3 <- apply(counts1_3_filter > 0, 2, sum)
+genespercell1.4 <- apply(counts1_4_filter > 0, 2, sum)
+```
+
+Histograms
+
+```{r fig.height=15, fig.width=15,message=FALSE, warning=FALSE}
+par(mfrow=c(2,2))
+hist(log10(genespercell1.1), breaks = 200, xlab = "Numer of Genes Expressed", main = "Distribution of Expressed Genes")
+hist(log10(genespercell1.2), breaks = 200, xlab = "Numer of Genes Expressed", main = "Distribution of Expressed Genes")
+hist(log10(genespercell1.3), breaks = 200, xlab = "Numer of Genes Expressed", main = "Distribution of Expressed Genes")
+hist(log10(genespercell1.4), breaks = 200, xlab = "Numer of Genes Expressed", main = "Distribution of Expressed Genes")
+```
+
+## Count vs genes per cell E1.1
+
+```{r fig.height=15, fig.width=15,message=FALSE, warning=FALSE}
+par(mfrow=c(2,2))
+plot(UMIspercell1.1_sorted, genespercell1.1, log='xy')
+title('counts vs genes per cell E1.1')
+plot(UMIspercell1.2_sorted, genespercell1.2, log='xy')
+title('counts vs genes per cell E1.2')
+plot(UMIspercell1.3_sorted, genespercell1.3, log='xy')
+title('counts vs genes per cell E1.3')
+plot(UMIspercell1.4_sorted, genespercell1.4, log='xy')
+title('counts vs genes per cell E1.4')
+```
+
+# Library 2: QC
+
+```{r message=FALSE, warning=FALSE}
+lib2_1 <- file.path("Library2_1_isoseq/alevin/quants_mat.gz")
+txi_lib2_1 <- tximport(lib2_1, type="alevin")
+counts2_1 <- txi_lib2_1[[2]]
+sum_2_1 <- colSums(counts2_1)
+sorted_2_1 <- sort(sum_2_1,decreasing = TRUE)
+
+lib2_2 <- file.path("Library2_2_isoseq/alevin/quants_mat.gz")
+txi_lib2_2 <- tximport(lib2_2, type="alevin")
+counts2_2 <- txi_lib2_2[[2]]
+sum_2_2 <- colSums(counts2_2)
+sorted_2_2 <- sort(sum_2_2,decreasing = TRUE)
+
+lib2_3 <- file.path("Library2_3_isoseq/alevin/quants_mat.gz")
+txi_lib2_3 <- tximport(lib2_3, type="alevin")
+counts2_3 <- txi_lib2_3[[2]]
+sum_2_3 <- colSums(counts2_3)
+sorted_2_3 <- sort(sum_2_3,decreasing = TRUE)
+
+lib2_4 <- file.path("Library2_4_isoseq/alevin/quants_mat.gz")
+txi_lib2_4 <- tximport(lib2_4, type="alevin")
+counts2_4 <- txi_lib2_4[[2]]
+sum_2_4 <- colSums(counts2_4)
+sorted_2_4 <- sort(sum_2_4,decreasing = TRUE)
+```
+
+```{r fig.height=20, fig.width=15,message=FALSE, warning=FALSE, eval=FALSE}
+par(mfrow=c(2,2))
+plot(sorted_2_1, 
+     xlab = "Barcodes",
+     ylab = "UMI counts",
+     main = "Barcode Rank Plot E2.1",
+     col = ifelse(sorted_2_1 > 400,'red','black'),
+     xlim = c(1,length(sorted_2_1)), 
+     ylim = c(1,sorted_2_1[[1]]),
+     log = "xy")
+plot(sorted_2_2, 
+     xlab = "Barcodes",
+     ylab = "UMI counts",
+     main = "Barcode Rank Plot E2.2",
+     col = ifelse(sorted_2_2 > 500,'red','black'),
+     xlim = c(1,length(sorted_2_2)), 
+     ylim = c(1,sorted_2_2[[1]]),
+     log = "xy")
+plot(sorted_2_3, 
+     xlab = "Barcodes",
+     ylab = "UMI counts",
+     main = "Barcode Rank Plot E2.3",
+     col = ifelse(sorted_2_3 > 400,'red','black'),
+     xlim = c(1,length(sorted_2_3)), 
+     ylim = c(1,sorted_2_3[[1]]),
+     log = "xy")
+plot(sorted_2_4, 
+     xlab = "Barcodes",
+     ylab = "UMI counts",
+     main = "Barcode Rank Plot E2.4",
+     col = ifelse(sorted_2_4 > 450,'red','black'),
+     xlim = c(1,length(sorted_2_4)), 
+     ylim = c(1,sorted_2_4[[1]]),
+     log = "xy")
+```
+
+## Filtering and UMIs per cell E2
+
+```{r}
+# for filtering out low UMI counts (<= 400)
+keep2_1 <- colSums(counts2_1) > 400
+counts2_1_filter <- counts2_1[,keep2_1]
+
+sum_2_1.1 <- colSums(counts2_1_filter)
+range(sum_2_1.1)
+
+UMIspercell2.1_sorted <- sort(sum_2_1.1,decreasing = TRUE)
+
+keep2_2 <- colSums(counts2_2) > 500
+counts2_2_filter <- counts2_2[,keep2_2]
+
+sum_2_2.1 <- colSums(counts2_2_filter)
+range(sum_2_2.1)
+
+UMIspercell2.2_sorted <- sort(sum_2_2.1,decreasing = TRUE)
+
+keep2_3 <- colSums(counts2_3) > 400
+counts2_3_filter <- counts2_3[,keep2_3]
+
+sum_2_3.1 <- colSums(counts2_3_filter)
+range(sum_2_3.1)
+
+UMIspercell2.3_sorted <- sort(sum_2_3.1,decreasing = TRUE)
+
+keep2_4 <- colSums(counts2_4) > 450
+counts2_4_filter <- counts2_4[,keep2_4]
+
+sum_2_4.1 <- colSums(counts2_4_filter)
+range(sum_2_4.1)
+
+UMIspercell2.4_sorted <- sort(sum_2_4.1,decreasing = TRUE)
+```
+
+```{r fig.height=15, fig.width=15,message=FALSE, warning=FALSE,eval = FALSE}
+par(mfrow=c(2,2))
+p2.1.1 <- plot(UMIspercell2.1_sorted, 
+     xlab = "Cells",
+     ylab = "UMI counts",
+     main = "Frequency distribution of UMIs per cell E2.1",
+     xlim = c(1,length(UMIspercell2.1_sorted)), 
+     ylim = c(1,UMIspercell2.1_sorted[[1]]),
+     )
+p2.2.1 <- plot(UMIspercell2.2_sorted, 
+     xlab = "Cells",
+     ylab = "UMI counts",
+     main = "Frequency distribution of UMIs per cell E2.2",
+     xlim = c(1,length(UMIspercell2.2_sorted)), 
+     ylim = c(1,UMIspercell2.2_sorted[[1]]),
+     )
+p2.3.1 <- plot(UMIspercell2.3_sorted, 
+     xlab = "Cells",
+     ylab = "UMI counts",
+     main = "Frequency distribution of UMIs per cell E2.2",
+     xlim = c(1,length(UMIspercell2.3_sorted)), 
+     ylim = c(1,UMIspercell2.3_sorted[[1]]),
+     )
+p2.4.1 <- plot(UMIspercell2.4_sorted, 
+     xlab = "Cells",
+     ylab = "UMI counts",
+     main = "Frequency distribution of UMIs per cell E2.4",
+     xlim = c(1,length(UMIspercell2.4_sorted)), 
+     ylim = c(1,UMIspercell2.4_sorted[[1]]),
+     )
+```
+
+```{r fig.height=15, fig.width=15,message=FALSE, warning=FALSE, eval = FALSE}
+par(mfrow=c(2,2))
+p2.1.2 <- hist(log10(UMIspercell2.1_sorted), breaks = 200, xlab = "UMIs expressed", main = "Distribution of UMIs")
+p2.2.2 <- hist(log10(UMIspercell2.2_sorted), breaks = 200, xlab = "UMIs expressed", main = "Distribution of UMIs")
+p2.3.2 <- hist(log10(UMIspercell2.3_sorted), breaks = 200, xlab = "UMIs expressed", main = "Distribution of UMIs")
+p2.4.2 <- hist(log10(UMIspercell2.4_sorted), breaks = 200, xlab = "UMIs expressed", main = "Distribution of UMIs")
+```
+
+## Genes per cell E2.
+
+```{r eval=FALSE}
+genespercell2.1 <- apply(counts2_1_filter > 0, 2, sum)
+genespercell2.2 <- apply(counts2_2_filter > 0, 2, sum)
+genespercell2.3 <- apply(counts2_3_filter > 0, 2, sum)
+genespercell2.4 <- apply(counts2_4_filter > 0, 2, sum)
+```
+
+Histograms
+
+```{r fig.height=15, fig.width=15,message=FALSE, warning=FALSE,eval = FALSE}
+par(mfrow=c(2,2))
+hist(log10(genespercell2.1), breaks = 200, xlab = "Numer of Genes Expressed", main = "Distribution of Expressed Genes")
+hist(log10(genespercell2.2), breaks = 200, xlab = "Numer of Genes Expressed", main = "Distribution of Expressed Genes")
+hist(log10(genespercell2.3), breaks = 200, xlab = "Numer of Genes Expressed", main = "Distribution of Expressed Genes")
+hist(log10(genespercell2.4), breaks = 200, xlab = "Numer of Genes Expressed", main = "Distribution of Expressed Genes")
+```
+
+## Count vs genes per cell E2.1
+
+```{r fig.height=15, fig.width=15,message=FALSE, warning=FALSE, eval = FALSE}
+par(mfrow=c(2,2))
+plot(UMIspercell2.1_sorted, genespercell2.1, log='xy')
+title('counts vs genes per cell E2.1')
+plot(UMIspercell2.2_sorted, genespercell2.2, log='xy')
+title('counts vs genes per cell E2.2')
+plot(UMIspercell2.3_sorted, genespercell2.3, log='xy')
+title('counts vs genes per cell E2.3')
+plot(UMIspercell2.4_sorted, genespercell2.4, log='xy')
+title('counts vs genes per cell E2.4')
+```
+
+# Library 4: QC
+
+```{r message=FALSE, warning=FALSE}
+lib4_1 <- file.path("Library4_1_isoseq/alevin/quants_mat.gz")
+txi_lib4_1 <- tximport(lib4_1, type="alevin")
+counts4_1 <- txi_lib4_1[[2]]
+sum_4_1 <- colSums(counts4_1)
+sorted_4_1 <- sort(sum_4_1,decreasing = TRUE)
+
+lib4_2 <- file.path("Library4_2_isoseq/alevin/quants_mat.gz")
+txi_lib4_2 <- tximport(lib4_2, type="alevin")
+counts4_2 <- txi_lib4_2[[2]]
+sum_4_2 <- colSums(counts4_2)
+sorted_4_2 <- sort(sum_4_2,decreasing = TRUE)
+
+lib4_3 <- file.path("Library4_3_isoseq/alevin/quants_mat.gz")
+txi_lib4_3 <- tximport(lib4_3, type="alevin")
+counts4_3 <- txi_lib4_3[[2]]
+sum_4_3 <- colSums(counts4_3)
+sorted_4_3 <- sort(sum_4_3,decreasing = TRUE)
+
+lib4_4 <- file.path("Library4_4_isoseq/alevin/quants_mat.gz")
+txi_lib4_4 <- tximport(lib4_4, type="alevin")
+counts4_4 <- txi_lib4_4[[2]]
+sum_4_4 <- colSums(counts4_4)
+sorted_4_4 <- sort(sum_4_4,decreasing = TRUE)
+```
+
+
+```{r fig.height=20, fig.width=15,message=FALSE, warning=FALSE,eval = FALSE}
+par(mfrow=c(2,2))
+plot(sorted_4_1, 
+     xlab = "Barcodes",
+     ylab = "UMI counts",
+     main = "Barcode Rank Plot E4.1",
+     col = ifelse(sorted_4_1 > 1000,'red','black'),
+     xlim = c(1,length(sorted_4_1)), 
+     ylim = c(1,sorted_4_1[[1]]),
+     log = "xy")
+plot(sorted_4_2, 
+     xlab = "Barcodes",
+     ylab = "UMI counts",
+     main = "Barcode Rank Plot E4.2",
+     col = ifelse(sorted_4_2 > 1000,'red','black'),
+     xlim = c(1,length(sorted_4_2)), 
+     ylim = c(1,sorted_4_2[[1]]),
+     log = "xy")
+plot(sorted_4_3, 
+     xlab = "Barcodes",
+     ylab = "UMI counts",
+     main = "Barcode Rank Plot E4.3",
+     col = ifelse(sorted_4_3 > 1000,'red','black'),
+     xlim = c(1,length(sorted_4_3)), 
+     ylim = c(1,sorted_4_3[[1]]),
+     log = "xy")
+plot(sorted_4_4, 
+     xlab = "Barcodes",
+     ylab = "UMI counts",
+     main = "Barcode Rank Plot E4.4",
+     col = ifelse(sorted_4_4 > 850,'red','black'),
+     xlim = c(1,length(sorted_4_4)), 
+     ylim = c(1,sorted_4_4[[1]]),
+     log = "xy")
+```
+
+## Filtering and UMIs per cell E4
+
+```{r}
+keep4_1 <- colSums(counts4_1) > 1000
+counts4_1_filter <- counts4_1[,keep4_1]
+
+sum_4_1.1 <- colSums(counts4_1_filter)
+range(sum_4_1.1)
+
+UMIspercell4.1_sorted <- sort(sum_4_1.1,decreasing = TRUE)
+
+keep4_2 <- colSums(counts4_2) > 1000
+counts4_2_filter <- counts4_2[,keep4_2]
+
+sum_4_2.1 <- colSums(counts4_2_filter)
+range(sum_4_2.1)
+
+UMIspercell4.2_sorted <- sort(sum_4_2.1,decreasing = TRUE)
+
+keep4_3 <- colSums(counts4_3) > 1000
+counts4_3_filter <- counts4_3[,keep4_3]
+
+sum_4_3.1 <- colSums(counts4_3_filter)
+range(sum_4_3.1)
+
+UMIspercell4.3_sorted <- sort(sum_4_3.1,decreasing = TRUE)
+
+keep4_4 <- colSums(counts4_4) > 850
+counts4_4_filter <- counts4_4[,keep4_4]
+
+sum_4_4.1 <- colSums(counts4_4_filter)
+range(sum_4_4.1)
+
+UMIspercell4.4_sorted <- sort(sum_4_4.1,decreasing = TRUE)
+
+```
+
+
+```{r fig.height=15, fig.width=15,message=FALSE, warning=FALSE, eval=FALSE}
+par(mfrow=c(2,2))
+p4.1.1 <- plot(UMIspercell4.1_sorted, 
+     xlab = "Cells",
+     ylab = "UMI counts",
+     main = "Frequency distribution of UMIs per cell E4.1",
+     xlim = c(1,length(UMIspercell4.1_sorted)), 
+     ylim = c(1,UMIspercell4.1_sorted[[1]]),
+     )
+p4.2.1 <- plot(UMIspercell4.2_sorted, 
+     xlab = "Cells",
+     ylab = "UMI counts",
+     main = "Frequency distribution of UMIs per cell E4.2",
+     xlim = c(1,length(UMIspercell4.2_sorted)), 
+     ylim = c(1,UMIspercell4.2_sorted[[1]]),
+     )
+p4.3.1 <- plot(UMIspercell4.3_sorted, 
+     xlab = "Cells",
+     ylab = "UMI counts",
+     main = "Frequency distribution of UMIs per cell E4.3",
+     xlim = c(1,length(UMIspercell4.3_sorted)), 
+     ylim = c(1,UMIspercell4.3_sorted[[1]]),
+     )
+p4.4.1 <- plot(UMIspercell4.4_sorted, 
+     xlab = "Cells",
+     ylab = "UMI counts",
+     main = "Frequency distribution of UMIs per cell E4.4",
+     xlim = c(1,length(UMIspercell4.4_sorted)), 
+     ylim = c(1,UMIspercell4.4_sorted[[1]]),
+     )
+```
+
+
+```{r fig.height=15, fig.width=15,message=FALSE, warning=FALSE, eval=FALSE}
+par(mfrow=c(2,2))
+p4.1.2 <- hist(log10(UMIspercell4.1_sorted), breaks = 200, xlab = "UMIs expressed", main = "Distribution of UMIs")
+p4.2.2 <- hist(log10(UMIspercell4.2_sorted), breaks = 200, xlab = "UMIs expressed", main = "Distribution of UMIs")
+p4.3.2 <- hist(log10(UMIspercell4.3_sorted), breaks = 200, xlab = "UMIs expressed", main = "Distribution of UMIs")
+p4.4.2 <- hist(log10(UMIspercell4.4_sorted), breaks = 200, xlab = "UMIs expressed", main = "Distribution of UMIs")
+```
+
+## Genes per cell E4
+
+```{r eval=FALSE}
+genespercell4.1 <- apply(counts4_1_filter > 0, 2, sum)
+genespercell4.2 <- apply(counts4_2_filter > 0, 2, sum)
+genespercell4.3 <- apply(counts4_3_filter > 0, 2, sum)
+genespercell4.4 <- apply(counts4_4_filter > 0, 2, sum)
+```
+
+
+```{r fig.height=15, fig.width=15,message=FALSE, warning=FALSE,eval = FALSE}
+par(mfrow=c(2,2))
+hist(log10(genespercell4.1), breaks = 200, xlab = "Numer of Genes Expressed", main = "Distribution of Expressed Genes")
+hist(log10(genespercell4.2), breaks = 200, xlab = "Numer of Genes Expressed", main = "Distribution of Expressed Genes")
+hist(log10(genespercell4.3), breaks = 200, xlab = "Numer of Genes Expressed", main = "Distribution of Expressed Genes")
+hist(log10(genespercell4.4), breaks = 200, xlab = "Numer of Genes Expressed", main = "Distribution of Expressed Genes")
+```
+
+## UMIs per cell vs Genes per cell E4
+
+```{r fig.height=15, fig.width=15,message=FALSE, warning=FALSE, eval = FALSE}
+par(mfrow=c(2,2))
+plot(UMIspercell4.1_sorted, genespercell4.1, log='xy')
+title('counts vs genes per cell')
+plot(UMIspercell4.2_sorted, genespercell4.2, log='xy')
+title('counts vs genes per cell')
+plot(UMIspercell4.3_sorted, genespercell4.3, log='xy')
+title('counts vs genes per cell')
+plot(UMIspercell4.4_sorted, genespercell4.4, log='xy')
+title('counts vs genes per cell')
+```
+
+
+# Library 5 QC
+
+## Reading matrices from alevin
+
+```{r message=FALSE, warning=FALSE}
+lib5_1 <- file.path("Library5_1_isoseq_2/alevin/quants_mat.gz")
+txi_lib5_1 <- tximport(lib5_1, type="alevin")
+counts5_1 <- txi_lib5_1[[2]]
+sum_5_1 <- colSums(counts5_1)
+sorted_5_1 <- sort(sum_5_1,decreasing = TRUE)
+
+lib5_2 <- file.path("Library5_2_isoseq/alevin/quants_mat.gz")
+txi_lib5_2 <- tximport(lib5_2, type="alevin")
+counts5_2 <- txi_lib5_2[[2]]
+sum_5_2 <- colSums(counts5_2)
+sorted_5_2 <- sort(sum_5_2,decreasing = TRUE)
+
+lib5_3 <- file.path("Library5_3_isoseq/alevin/quants_mat.gz")
+txi_lib5_3 <- tximport(lib5_3, type="alevin")
+counts5_3 <- txi_lib5_3[[2]]
+sum_5_3 <- colSums(counts5_3)
+sorted_5_3 <- sort(sum_5_3,decreasing = TRUE)
+
+lib5_4 <- file.path("Library5_4_isoseq/alevin/quants_mat.gz")
+txi_lib5_4 <- tximport(lib5_4, type="alevin")
+counts5_4 <- txi_lib5_4[[2]]
+sum_5_4 <- colSums(counts5_4)
+sorted_5_4 <- sort(sum_5_4,decreasing = TRUE)
+
+lib5_5 <- file.path("Library5_5_isoseq/alevin/quants_mat.gz")
+txi_lib5_5 <- tximport(lib5_5, type="alevin")
+counts5_5 <- txi_lib5_5[[2]]
+sum_5_5 <- colSums(counts5_5)
+sorted_5_5 <- sort(sum_5_5,decreasing = TRUE)
+
+lib5_6 <- file.path("Library5_6_isoseq/alevin/quants_mat.gz")
+txi_lib5_6 <- tximport(lib5_6, type="alevin")
+counts5_6 <- txi_lib5_6[[2]]
+sum_5_6 <- colSums(counts5_6)
+sorted_5_6 <- sort(sum_5_6,decreasing = TRUE)
+```
+
+
+```{r fig.height=20, fig.width=15,message=FALSE, warning=FALSE, eval=FALSE}
+par(mfrow=c(3,2))
+plot(sorted_5_1, 
+                xlab = "Barcodes",
+                ylab = "UMI counts",
+                main = "Barcode Rank Plot E5.1",
+                col = ifelse(sorted_5_1 > 400,'red','black'),
+                xlim = c(1,length(sorted_5_1)), 
+                ylim = c(1,sorted_5_1[[1]]),
+                log = "xy")
+plot(sorted_5_2, 
+                xlab = "Barcodes",
+                ylab = "UMI counts",
+                main = "Barcode Rank Plot E5.2",
+                col = ifelse(sorted_5_2 > 400,'red','black'),
+                xlim = c(1,length(sorted_5_2)), 
+                ylim = c(1,sorted_5_2[[1]]),
+                log = "xy")
+plot(sorted_5_3, 
+                xlab = "Barcodes",
+                ylab = "UMI counts",
+                main = "Barcode Rank Plot E5.3",
+                col = ifelse(sorted_5_3 > 400,'red','black'),
+                xlim = c(1,length(sorted_5_3)), 
+                ylim = c(1,sorted_5_3[[1]]),
+                log = "xy")
+plot(sorted_5_4, 
+                xlab = "Barcodes",
+                ylab = "UMI counts",
+                main = "Barcode Rank Plot E5.4",
+                col = ifelse(sorted_5_4 > 400,'red','black'),
+                xlim = c(1,length(sorted_5_4)), 
+                ylim = c(1,sorted_5_4[[1]]),
+                log = "xy")
+plot(sorted_5_5, 
+                xlab = "Barcodes",
+                ylab = "UMI counts",
+                main = "Barcode Rank Plot E5.5",
+                col = ifelse(sorted_5_5 > 400,'red','black'),
+                xlim = c(1,length(sorted_5_5)), 
+                ylim = c(1,sorted_5_5[[1]]),
+                log = "xy")
+plot(sorted_5_6, 
+                xlab = "Barcodes",
+                ylab = "UMI counts",
+                main = "Barcode Rank Plot E5.6",
+                col = ifelse(sorted_5_6 > 400,'red','black'),
+                xlim = c(1,length(sorted_5_6)), 
+                ylim = c(1,sorted_5_6[[1]]),
+                log = "xy")
+```
+
+```{r}
+# filtering and UMIs per cell 
+#Library 5.1
+keep5_1 <- colSums(counts5_1) > 400
+counts5_1_filter <- counts5_1[,keep5_1]
+
+sum_5_1.1 <- colSums(counts5_1_filter)
+range(sum_5_1.1)
+
+UMIspercell5.1_sorted <- sort(sum_5_1.1,decreasing = TRUE)
+
+#Library 5.2
+keep5_2 <- colSums(counts5_2) > 400
+counts5_2_filter <- counts5_2[,keep5_2]
+
+sum_5_2.1 <- colSums(counts5_2_filter)
+range(sum_5_2.1)
+
+UMIspercell5.2_sorted <- sort(sum_5_2.1,decreasing = TRUE)
+
+#Library 5.3
+keep5_3 <- colSums(counts5_3) > 400
+counts5_3_filter <- counts5_3[,keep5_3]
+
+sum_5_3.1 <- colSums(counts5_3_filter)
+range(sum_5_3.1)
+
+UMIspercell5.3_sorted <- sort(sum_5_3.1,decreasing = TRUE)
+
+#Library 5.4
+keep5_4 <- colSums(counts5_4) > 400
+counts5_4_filter <- counts5_4[,keep5_4]
+
+sum_5_4.1 <- colSums(counts5_4_filter)
+range(sum_5_4.1)
+
+UMIspercell5.4_sorted <- sort(sum_5_4.1,decreasing = TRUE)
+
+#Library 5.5
+keep5_5 <- colSums(counts5_5) > 400
+counts5_5_filter <- counts5_5[,keep5_5]
+
+sum_5_5.1 <- colSums(counts5_5_filter)
+range(sum_5_5.1)
+
+UMIspercell5.5_sorted <- sort(sum_5_5.1,decreasing = TRUE)
+
+#Library 5.6
+keep5_6 <- colSums(counts5_6) > 400
+counts5_6_filter <- counts5_6[,keep5_6]
+
+sum_5_6.1 <- colSums(counts5_6_filter)
+range(sum_5_6.1)
+
+UMIspercell5.6_sorted <- sort(sum_5_6.1,decreasing = TRUE)
+```
+
+```{r fig.height=15, fig.width=15,message=FALSE, warning=FALSE, eval=FALSE}
+par(mfrow=c(3,2))
+p5.1.1 <- plot(UMIspercell5.1_sorted, 
+     xlab = "Cells",
+     ylab = "UMI counts",
+     main = "Frequency distribution of UMIs per cell E5.1",
+     xlim = c(1,length(UMIspercell5.1_sorted)), 
+     ylim = c(1,UMIspercell5.1_sorted[[1]]),
+     )
+p5.2.1 <- plot(UMIspercell5.2_sorted, 
+     xlab = "Cells",
+     ylab = "UMI counts",
+     main = "Frequency distribution of UMIs per cell E5.2",
+     xlim = c(1,length(UMIspercell5.2_sorted)), 
+     ylim = c(1,UMIspercell5.2_sorted[[1]]),
+     )
+p5.3.1 <- plot(UMIspercell5.3_sorted, 
+     xlab = "Cells",
+     ylab = "UMI counts",
+     main = "Frequency distribution of UMIs per cell E5.3",
+     xlim = c(1,length(UMIspercell5.3_sorted)), 
+     ylim = c(1,UMIspercell5.3_sorted[[1]]),
+     )
+p5.4.1 <- plot(UMIspercell5.4_sorted, 
+     xlab = "Cells",
+     ylab = "UMI counts",
+     main = "Frequency distribution of UMIs per cell E5.4",
+     xlim = c(1,length(UMIspercell5.4_sorted)), 
+     ylim = c(1,UMIspercell5.4_sorted[[1]]),
+     )
+p5.5.1 <- plot(UMIspercell5.5_sorted, 
+     xlab = "Cells",
+     ylab = "UMI counts",
+     main = "Frequency distribution of UMIs per cell E5.5",
+     xlim = c(1,length(UMIspercell5.5_sorted)), 
+     ylim = c(1,UMIspercell5.5_sorted[[1]]),
+     )
+p5.6.1 <- plot(UMIspercell5.6_sorted, 
+     xlab = "Cells",
+     ylab = "UMI counts",
+     main = "Frequency distribution of UMIs per cell E5.6",
+     xlim = c(1,length(UMIspercell5.6_sorted)), 
+     ylim = c(1,UMIspercell5.6_sorted[[1]]),
+     )
+```
+
+```{r fig.height=15, fig.width=15,message=FALSE, warning=FALSE, eval=FALSE}
+par(mfrow=c(3,2))
+p5.1.2 <- hist(log10(UMIspercell5.1_sorted), breaks = 200, xlab = "UMIs expressed", main = "Distribution of UMIs L5.1")
+p5.2.2 <- hist(log10(UMIspercell5.2_sorted), breaks = 200, xlab = "UMIs expressed", main = "Distribution of UMIs L5.2")
+p5.3.2 <- hist(log10(UMIspercell5.3_sorted), breaks = 200, xlab = "UMIs expressed", main = "Distribution of UMIs L5.3")
+p5.4.2 <- hist(log10(UMIspercell5.4_sorted), breaks = 200, xlab = "UMIs expressed", main = "Distribution of UMIs L5.4")
+p5.5.2 <- hist(log10(UMIspercell5.5_sorted), breaks = 200, xlab = "UMIs expressed", main = "Distribution of UMIs L5.5")
+p5.6.2 <- hist(log10(UMIspercell5.6_sorted), breaks = 200, xlab = "UMIs expressed", main = "Distribution of UMIs L5.6")
+```
+
+# Genes per cell E5
+
+```{r eval=FALSE}
+#Genes per cell
+genespercell5.1 <- apply(counts5_1_filter > 0, 2, sum)
+genespercell5.2 <- apply(counts5_2_filter > 0, 2, sum)
+genespercell5.3 <- apply(counts5_3_filter > 0, 2, sum)
+genespercell5.4 <- apply(counts5_4_filter > 0, 2, sum)
+genespercell5.5 <- apply(counts5_5_filter > 0, 2, sum)
+genespercell5.6 <- apply(counts5_6_filter > 0, 2, sum)
+```
+
+```{r fig.height=15, fig.width=15,message=FALSE, warning=FALSE,eval = FALSE}
+par(mfrow=c(3,2))
+hist(log10(genespercell5.1), breaks = 200, xlab = "Numer of Genes Expressed", main = "Distribution of Expressed Genes")
+hist(log10(genespercell5.2), breaks = 200, xlab = "Numer of Genes Expressed", main = "Distribution of Expressed Genes")
+hist(log10(genespercell5.3), breaks = 200, xlab = "Numer of Genes Expressed", main = "Distribution of Expressed Genes")
+hist(log10(genespercell5.4), breaks = 200, xlab = "Numer of Genes Expressed", main = "Distribution of Expressed Genes")
+hist(log10(genespercell5.5), breaks = 200, xlab = "Numer of Genes Expressed", main = "Distribution of Expressed Genes")
+hist(log10(genespercell5.6), breaks = 200, xlab = "Numer of Genes Expressed", main = "Distribution of Expressed Genes")
+```
+
+```{r fig.height=15, fig.width=15,message=FALSE, warning=FALSE,eval = FALSE}
+par(mfrow=c(3,2))
+plot(UMIspercell5.1_sorted, genespercell5.1, log='xy')
+plot(UMIspercell5.2_sorted, genespercell5.2, log='xy')
+plot(UMIspercell5.3_sorted, genespercell5.3, log='xy')
+plot(UMIspercell5.4_sorted, genespercell5.4, log='xy')
+plot(UMIspercell5.5_sorted, genespercell5.5, log='xy')
+plot(UMIspercell5.6_sorted, genespercell5.6, log='xy')
+```
+
+# Library 6: QC
+
+```{r message=FALSE, warning=FALSE}
+lib6_1 <- file.path("E6_1_isoseq/alevin/quants_mat.gz")
+txi_lib6_1 <- tximport(lib6_1, type="alevin")
+counts6_1 <- txi_lib6_1[[2]]
+sum_6_1 <- colSums(counts6_1)
+sorted_6_1 <- sort(sum_6_1,decreasing = TRUE)
+
+lib6_2 <- file.path("E6_2_isoseq/alevin/quants_mat.gz")
+txi_lib6_2 <- tximport(lib6_2, type="alevin")
+counts6_2 <- txi_lib6_2[[2]]
+sum_6_2 <- colSums(counts6_2)
+sorted_6_2 <- sort(sum_6_2,decreasing = TRUE)
+
+lib6_3 <- file.path("E6_3_isoseq/alevin/quants_mat.gz")
+txi_lib6_3 <- tximport(lib6_3, type="alevin")
+counts6_3 <- txi_lib6_3[[2]]
+sum_6_3 <- colSums(counts6_3)
+sorted_6_3 <- sort(sum_6_3,decreasing = TRUE)
+
+lib6_4 <- file.path("E6_4_isoseq/alevin/quants_mat.gz")
+txi_lib6_4 <- tximport(lib6_4, type="alevin")
+counts6_4 <- txi_lib6_4[[2]]
+sum_6_4 <- colSums(counts6_4)
+sorted_6_4 <- sort(sum_6_4,decreasing = TRUE)
+
+lib6_5 <- file.path("E6_5_isoseq/alevin/quants_mat.gz")
+txi_lib6_5 <- tximport(lib6_5, type="alevin")
+counts6_5 <- txi_lib6_5[[2]]
+sum_6_5 <- colSums(counts6_5)
+sorted_6_5 <- sort(sum_6_5,decreasing = TRUE)
+
+lib6_6 <- file.path("E6_6_isoseq/alevin/quants_mat.gz")
+txi_lib6_6 <- tximport(lib6_6, type="alevin")
+counts6_6 <- txi_lib6_6[[2]]
+sum_6_6 <- colSums(counts6_6)
+sorted_6_6 <- sort(sum_6_6,decreasing = TRUE)
+```
+
+
+```{r fig.height=20, fig.width=15,message=FALSE, warning=FALSE, eval=FALSE}
+par(mfrow=c(3,2))
+plot(sorted_6_1, 
+                xlab = "Barcodes",
+                ylab = "UMI counts",
+                main = "Barcode Rank Plot E6.1",
+                col = ifelse(sorted_6_1 > 300,'red','black'),
+                xlim = c(1,length(sorted_6_1)), 
+                ylim = c(1,sorted_6_1[[1]]),
+                log = "xy")
+plot(sorted_6_2, 
+                xlab = "Barcodes",
+                ylab = "UMI counts",
+                main = "Barcode Rank Plot E6.2",
+                col = ifelse(sorted_6_2 > 300,'red','black'),
+                xlim = c(1,length(sorted_6_2)), 
+                ylim = c(1,sorted_6_2[[1]]),
+                log = "xy")
+plot(sorted_6_3, 
+                xlab = "Barcodes",
+                ylab = "UMI counts",
+                main = "Barcode Rank Plot E6.3",
+                col = ifelse(sorted_6_3 > 300,'red','black'),
+                xlim = c(1,length(sorted_6_3)), 
+                ylim = c(1,sorted_6_3[[1]]),
+                log = "xy")
+plot(sorted_6_4, 
+                xlab = "Barcodes",
+                ylab = "UMI counts",
+                main = "Barcode Rank Plot E6.4",
+                col = ifelse(sorted_6_4 > 300,'red','black'),
+                xlim = c(1,length(sorted_6_4)), 
+                ylim = c(1,sorted_6_4[[1]]),
+                log = "xy")
+plot(sorted_6_5, 
+                xlab = "Barcodes",
+                ylab = "UMI counts",
+                main = "Barcode Rank Plot E6.5",
+                col = ifelse(sorted_6_5 > 300,'red','black'),
+                xlim = c(1,length(sorted_6_5)), 
+                ylim = c(1,sorted_6_5[[1]]),
+                log = "xy")
+plot(sorted_6_6, 
+                xlab = "Barcodes",
+                ylab = "UMI counts",
+                main = "Barcode Rank Plot E6.6",
+                col = ifelse(sorted_6_6 > 300,'red','black'),
+                xlim = c(1,length(sorted_6_6)), 
+                ylim = c(1,sorted_6_6[[1]]),
+                log = "xy")
+```
+
+```{r}
+# filtering and UMIs per cell 
+#Library 6.1
+keep6_1 <- colSums(counts6_1) > 300
+counts6_1_filter <- counts6_1[,keep6_1]
+
+sum_6_1.1 <- colSums(counts6_1_filter)
+range(sum_6_1.1)
+
+UMIspercell6.1_sorted <- sort(sum_6_1.1,decreasing = TRUE)
+
+#Library 6.2
+keep6_2 <- colSums(counts6_2) > 300
+counts6_2_filter <- counts6_2[,keep6_2]
+
+sum_6_2.1 <- colSums(counts6_2_filter)
+range(sum_6_2.1)
+
+UMIspercell6.2_sorted <- sort(sum_6_2.1,decreasing = TRUE)
+
+#Library 6.3
+keep6_3 <- colSums(counts6_3) > 300
+counts6_3_filter <- counts6_3[,keep6_3]
+
+sum_6_3.1 <- colSums(counts6_3_filter)
+range(sum_6_3.1)
+
+UMIspercell6.3_sorted <- sort(sum_6_3.1,decreasing = TRUE)
+
+#Library 6.4
+keep6_4 <- colSums(counts6_4) > 300
+counts6_4_filter <- counts6_4[,keep6_4]
+
+sum_6_4.1 <- colSums(counts6_4_filter)
+range(sum_6_4.1)
+
+UMIspercell6.4_sorted <- sort(sum_6_4.1,decreasing = TRUE)
+
+#Library 6.5
+keep6_5 <- colSums(counts6_5) > 300
+counts6_5_filter <- counts6_5[,keep6_5]
+
+sum_6_5.1 <- colSums(counts6_5_filter)
+range(sum_6_5.1)
+
+UMIspercell6.5_sorted <- sort(sum_6_5.1,decreasing = TRUE)
+
+#Library 6.6
+keep6_6 <- colSums(counts6_6) > 300
+counts6_6_filter <- counts6_6[,keep6_6]
+
+sum_6_6.1 <- colSums(counts6_6_filter)
+range(sum_6_6.1)
+
+UMIspercell6.6_sorted <- sort(sum_6_6.1,decreasing = TRUE)
+```
+
+```{r fig.height=15, fig.width=15,message=FALSE, warning=FALSE, eval=FALSE}
+par(mfrow=c(3,2))
+p6.1.1 <- plot(UMIspercell6.1_sorted, 
+     xlab = "Cells",
+     ylab = "UMI counts",
+     main = "Frequency distribution of UMIs per cell E6.1",
+     xlim = c(1,length(UMIspercell6.1_sorted)), 
+     ylim = c(1,UMIspercell6.1_sorted[[1]]),
+     )
+p6.2.1 <- plot(UMIspercell6.2_sorted, 
+     xlab = "Cells",
+     ylab = "UMI counts",
+     main = "Frequency distribution of UMIs per cell E6.2",
+     xlim = c(1,length(UMIspercell6.2_sorted)), 
+     ylim = c(1,UMIspercell6.2_sorted[[1]]),
+     )
+p6.3.1 <- plot(UMIspercell6.3_sorted, 
+     xlab = "Cells",
+     ylab = "UMI counts",
+     main = "Frequency distribution of UMIs per cell E6.3",
+     xlim = c(1,length(UMIspercell6.3_sorted)), 
+     ylim = c(1,UMIspercell6.3_sorted[[1]]),
+     )
+p6.4.1 <- plot(UMIspercell6.4_sorted, 
+     xlab = "Cells",
+     ylab = "UMI counts",
+     main = "Frequency distribution of UMIs per cell E6.4",
+     xlim = c(1,length(UMIspercell6.4_sorted)), 
+     ylim = c(1,UMIspercell6.4_sorted[[1]]),
+     )
+p6.5.1 <- plot(UMIspercell6.5_sorted, 
+     xlab = "Cells",
+     ylab = "UMI counts",
+     main = "Frequency distribution of UMIs per cell E6.5",
+     xlim = c(1,length(UMIspercell6.5_sorted)), 
+     ylim = c(1,UMIspercell6.5_sorted[[1]]),
+     )
+p6.6.1 <- plot(UMIspercell6.6_sorted, 
+     xlab = "Cells",
+     ylab = "UMI counts",
+     main = "Frequency distribution of UMIs per cell E6.6",
+     xlim = c(1,length(UMIspercell6.6_sorted)), 
+     ylim = c(1,UMIspercell6.6_sorted[[1]]),
+     )
+```
+
+```{r fig.height=15, fig.width=15,message=FALSE, warning=FALSE, eval = FALSE}
+par(mfrow=c(3,2))
+p6.1.2 <- hist(log10(UMIspercell6.1_sorted), breaks = 200, xlab = "UMIs expressed", main = "Distribution of UMIs L6.1")
+p6.2.2 <- hist(log10(UMIspercell6.2_sorted), breaks = 200, xlab = "UMIs expressed", main = "Distribution of UMIs L6.2")
+p6.3.2 <- hist(log10(UMIspercell6.3_sorted), breaks = 200, xlab = "UMIs expressed", main = "Distribution of UMIs L6.3")
+p6.4.2 <- hist(log10(UMIspercell6.4_sorted), breaks = 200, xlab = "UMIs expressed", main = "Distribution of UMIs L6.4")
+p6.5.2 <- hist(log10(UMIspercell6.5_sorted), breaks = 200, xlab = "UMIs expressed", main = "Distribution of UMIs L6.5")
+p6.6.2 <- hist(log10(UMIspercell6.6_sorted), breaks = 200, xlab = "UMIs expressed", main = "Distribution of UMIs L6.6")
+```
+
+# Genes per cell E6
+
+```{r eval=FALSE}
+#Genes per cell
+genespercell6.1 <- apply(counts6_1_filter > 0, 2, sum)
+genespercell6.2 <- apply(counts6_2_filter > 0, 2, sum)
+genespercell6.3 <- apply(counts6_3_filter > 0, 2, sum)
+genespercell6.4 <- apply(counts6_4_filter > 0, 2, sum)
+genespercell6.5 <- apply(counts6_5_filter > 0, 2, sum)
+genespercell6.6 <- apply(counts6_6_filter > 0, 2, sum)
+```
+
+```{r fig.height=15, fig.width=15,message=FALSE, warning=FALSE,eval = FALSE}
+par(mfrow=c(3,2))
+hist(log10(genespercell6.1), breaks = 200, xlab = "Numer of Genes Expressed", main = "Distribution of Expressed Genes")
+hist(log10(genespercell6.2), breaks = 200, xlab = "Numer of Genes Expressed", main = "Distribution of Expressed Genes")
+hist(log10(genespercell6.3), breaks = 200, xlab = "Numer of Genes Expressed", main = "Distribution of Expressed Genes")
+hist(log10(genespercell6.4), breaks = 200, xlab = "Numer of Genes Expressed", main = "Distribution of Expressed Genes")
+hist(log10(genespercell6.5), breaks = 200, xlab = "Numer of Genes Expressed", main = "Distribution of Expressed Genes")
+hist(log10(genespercell6.6), breaks = 200, xlab = "Numer of Genes Expressed", main = "Distribution of Expressed Genes")
+```
+
+```{r fig.height=15, fig.width=15,message=FALSE, warning=FALSE,eval = FALSE}
+par(mfrow=c(3,2))
+plot(UMIspercell6.1_sorted, genespercell6.1, log='xy')
+plot(UMIspercell6.2_sorted, genespercell6.2, log='xy')
+plot(UMIspercell6.3_sorted, genespercell6.3, log='xy')
+plot(UMIspercell6.4_sorted, genespercell6.4, log='xy')
+plot(UMIspercell6.5_sorted, genespercell6.5, log='xy')
+plot(UMIspercell6.6_sorted, genespercell6.6, log='xy')
+```
+
+# Creating Seurat objects individually
+
+```{r message=FALSE, warning=FALSE}
+lib1.1 <- CreateSeuratObject(counts = counts1_1_filter, min.cells = 3, min.features = 200)
+lib1.2 <- CreateSeuratObject(counts = counts1_2_filter, min.cells = 3, min.features = 200)
+lib1.3 <- CreateSeuratObject(counts = counts1_3_filter, min.cells = 3, min.features = 200)
+lib1.4 <- CreateSeuratObject(counts = counts1_4_filter, min.cells = 3, min.features = 200)
+lib2.1 <- CreateSeuratObject(counts = counts2_1_filter, min.cells = 3, min.features = 200)
+lib2.2 <- CreateSeuratObject(counts = counts2_2_filter, min.cells = 3, min.features = 200)
+lib2.3 <- CreateSeuratObject(counts = counts2_3_filter, min.cells = 3, min.features = 200)
+lib2.4 <- CreateSeuratObject(counts = counts2_4_filter, min.cells = 3, min.features = 200)
+lib4.1 <- CreateSeuratObject(counts = counts4_1_filter, min.cells = 3, min.features = 200)
+lib4.2 <- CreateSeuratObject(counts = counts4_2_filter, min.cells = 3, min.features = 200)
+lib4.3 <- CreateSeuratObject(counts = counts4_3_filter, min.cells = 3, min.features = 200)
+lib4.4 <- CreateSeuratObject(counts = counts4_4_filter, min.cells = 3, min.features = 200)
+lib5.1 <- CreateSeuratObject(counts = counts5_1_filter, min.cells = 3, min.features = 200)
+lib5.2 <- CreateSeuratObject(counts = counts5_2_filter, min.cells = 3, min.features = 200)
+lib5.3 <- CreateSeuratObject(counts = counts5_3_filter, min.cells = 3, min.features = 200)
+lib5.4 <- CreateSeuratObject(counts = counts5_4_filter, min.cells = 3, min.features = 200)
+lib5.5 <- CreateSeuratObject(counts = counts5_5_filter, min.cells = 3, min.features = 200)
+lib5.6 <- CreateSeuratObject(counts = counts5_6_filter, min.cells = 3, min.features = 200)
+lib6.1 <- CreateSeuratObject(counts = counts6_1_filter, min.cells = 3, min.features = 200)
+lib6.2 <- CreateSeuratObject(counts = counts6_2_filter, min.cells = 3, min.features = 200)
+lib6.3 <- CreateSeuratObject(counts = counts6_3_filter, min.cells = 3, min.features = 200)
+lib6.4 <- CreateSeuratObject(counts = counts6_4_filter, min.cells = 3, min.features = 200)
+lib6.5 <- CreateSeuratObject(counts = counts6_5_filter, min.cells = 3, min.features = 200)
+lib6.6 <- CreateSeuratObject(counts = counts6_6_filter, min.cells = 3, min.features = 200)
+```
+
+```{r}
+# adding an ID to each Seurat Object according to the library from which they come
+CellsMeta1.1 = lib1.1@meta.data
+Library_source1.1 <- rep("lib1.1",dim(lib1.1@meta.data)[1])
+
+CellsMeta1.1 <- cbind(CellsMeta1.1, Library_source1.1)
+lib1.1 <- AddMetaData(lib1.1, CellsMeta1.1)
+
+CellsMeta1.2 = lib1.2@meta.data
+Library_source1.2 <- rep("lib1.2",dim(lib1.2@meta.data)[1])
+
+CellsMeta1.2 <- cbind(CellsMeta1.2, Library_source1.2)
+lib1.2 <- AddMetaData(lib1.2, CellsMeta1.2)
+
+CellsMeta1.3 = lib1.3@meta.data
+Library_source1.3 <- rep("lib1.3",dim(lib1.3@meta.data)[1])
+
+CellsMeta1.3 <- cbind(CellsMeta1.3, Library_source1.3)
+lib1.3 <- AddMetaData(lib1.3, CellsMeta1.3)
+
+CellsMeta1.4 = lib1.4@meta.data
+Library_source1.4 <- rep("lib1.4",dim(lib1.4@meta.data)[1])
+
+CellsMeta1.4 <- cbind(CellsMeta1.4, Library_source1.4)
+lib1.4 <- AddMetaData(lib1.4, CellsMeta1.4)
+## E2
+CellsMeta2.1 = lib2.1@meta.data
+Library_source2.1 <- rep("lib2.1",dim(lib2.1@meta.data)[1])
+
+CellsMeta2.1 <- cbind(CellsMeta2.1, Library_source2.1)
+lib2.1 <- AddMetaData(lib2.1, CellsMeta2.1)
+
+CellsMeta2.2 = lib2.2@meta.data
+Library_source2.2 <- rep("lib2.2",dim(lib2.2@meta.data)[1])
+
+CellsMeta2.2 <- cbind(CellsMeta2.2, Library_source2.2)
+lib2.2 <- AddMetaData(lib2.2, CellsMeta2.2)
+
+CellsMeta2.3 = lib2.3@meta.data
+Library_source2.3 <- rep("lib2.3",dim(lib2.3@meta.data)[1])
+
+CellsMeta2.3 <- cbind(CellsMeta2.3, Library_source2.3)
+lib2.3 <- AddMetaData(lib2.3, CellsMeta2.3)
+
+CellsMeta2.4 = lib2.4@meta.data
+Library_source2.4 <- rep("lib2.4",dim(lib2.4@meta.data)[1])
+
+CellsMeta2.4 <- cbind(CellsMeta2.4, Library_source2.4)
+lib2.4 <- AddMetaData(lib2.4, CellsMeta2.4)
+
+CellsMeta4.1 = lib4.1@meta.data
+Library_source4.1 <- rep("lib4.1",dim(lib4.1@meta.data)[1])
+
+CellsMeta4.1 <- cbind(CellsMeta4.1, Library_source4.1)
+lib4.1 <- AddMetaData(lib4.1, CellsMeta4.1)
+
+CellsMeta4.2 = lib4.2@meta.data
+Library_source4.2 <- rep("lib4.2",dim(lib4.2@meta.data)[1])
+
+CellsMeta4.2 <- cbind(CellsMeta4.2, Library_source4.2)
+lib4.2 <- AddMetaData(lib4.2, CellsMeta4.2)
+
+CellsMeta4.3 = lib4.3@meta.data
+Library_source4.3 <- rep("lib4.3",dim(lib4.3@meta.data)[1])
+
+CellsMeta4.3 <- cbind(CellsMeta4.3, Library_source4.3)
+lib4.3 <- AddMetaData(lib4.3, CellsMeta4.3)
+
+CellsMeta4.4 = lib4.4@meta.data
+Library_source4.4 <- rep("lib4.4",dim(lib4.4@meta.data)[1])
+
+CellsMeta4.4 <- cbind(CellsMeta4.4, Library_source4.4)
+lib4.4 <- AddMetaData(lib4.4, CellsMeta4.4)
+
+##
+CellsMeta5.1 = lib5.1@meta.data
+Library_source5.1 <- rep("lib5.1",dim(lib5.1@meta.data)[1])
+
+CellsMeta5.1 <- cbind(CellsMeta5.1, Library_source5.1)
+lib5.1 <- AddMetaData(lib5.1, CellsMeta5.1)
+
+CellsMeta5.2 = lib5.2@meta.data
+Library_source5.2 <- rep("lib5.2",dim(lib5.2@meta.data)[1])
+
+CellsMeta5.2 <- cbind(CellsMeta5.2, Library_source5.2)
+lib5.2 <- AddMetaData(lib5.2, CellsMeta5.2)
+
+CellsMeta5.3 = lib5.3@meta.data
+Library_source5.3 <- rep("lib5.3",dim(lib5.3@meta.data)[1])
+
+CellsMeta5.3 <- cbind(CellsMeta5.3, Library_source5.3)
+lib5.3 <- AddMetaData(lib5.3, CellsMeta5.3)
+
+CellsMeta5.4 = lib5.4@meta.data
+Library_source5.4 <- rep("lib5.4",dim(lib5.4@meta.data)[1])
+
+CellsMeta5.4 <- cbind(CellsMeta5.4, Library_source5.4)
+lib5.4 <- AddMetaData(lib5.4, CellsMeta5.4)
+
+CellsMeta5.5 = lib5.5@meta.data
+Library_source5.5 <- rep("lib5.5",dim(lib5.5@meta.data)[1])
+
+CellsMeta5.5 <- cbind(CellsMeta5.5, Library_source5.5)
+lib5.5 <- AddMetaData(lib5.5, CellsMeta5.5)
+
+CellsMeta5.6 = lib5.6@meta.data
+Library_source5.6 <- rep("lib5.6",dim(lib5.6@meta.data)[1])
+
+CellsMeta5.6 <- cbind(CellsMeta5.6, Library_source5.6)
+lib5.6 <- AddMetaData(lib5.6, CellsMeta5.6)
+
+##
+CellsMeta6.1 = lib6.1@meta.data
+Library_source6.1 <- rep("lib6.1",dim(lib6.1@meta.data)[1])
+
+CellsMeta6.1 <- cbind(CellsMeta6.1, Library_source6.1)
+lib6.1 <- AddMetaData(lib6.1, CellsMeta6.1)
+
+CellsMeta6.2 = lib6.2@meta.data
+Library_source6.2 <- rep("lib6.2",dim(lib6.2@meta.data)[1])
+
+CellsMeta6.2 <- cbind(CellsMeta6.2, Library_source6.2)
+lib6.2 <- AddMetaData(lib6.2, CellsMeta6.2)
+
+CellsMeta6.3 = lib6.3@meta.data
+Library_source6.3 <- rep("lib6.3",dim(lib6.3@meta.data)[1])
+
+CellsMeta6.3 <- cbind(CellsMeta6.3, Library_source6.3)
+lib6.3 <- AddMetaData(lib6.3, CellsMeta6.3)
+
+CellsMeta6.4 = lib6.4@meta.data
+Library_source6.4 <- rep("lib6.4",dim(lib6.4@meta.data)[1])
+
+CellsMeta6.4 <- cbind(CellsMeta6.4, Library_source6.4)
+lib6.4 <- AddMetaData(lib6.4, CellsMeta6.4)
+
+CellsMeta6.5 = lib6.5@meta.data
+Library_source6.5 <- rep("lib6.5",dim(lib6.5@meta.data)[1])
+
+CellsMeta6.5 <- cbind(CellsMeta6.5, Library_source6.5)
+lib6.5 <- AddMetaData(lib6.5, CellsMeta6.5)
+
+CellsMeta6.6 = lib6.6@meta.data
+Library_source6.6 <- rep("lib6.6",dim(lib6.6@meta.data)[1])
+
+CellsMeta6.6 <- cbind(CellsMeta6.6, Library_source6.6)
+lib6.6 <- AddMetaData(lib6.6, CellsMeta6.6)
+```
+
+# nFeatures and nCounts per library
+
+```{r fig.height=12, fig.width=15,message=FALSE, warning=FALSE, eval=FALSE}
+library(gridExtra)
+
+plot2.1 <- VlnPlot(lib2.1, features = c("nFeature_RNA"))
+plot2.2 <- VlnPlot(lib2.2, features = c("nFeature_RNA"))
+plot2.3 <- VlnPlot(lib2.3, features = c("nFeature_RNA"))
+plot2.4 <- VlnPlot(lib2.4, features = c("nFeature_RNA"))
+plot4.1 <- VlnPlot(lib4.1, features = c("nFeature_RNA"))
+plot4.2 <- VlnPlot(lib4.2, features = c("nFeature_RNA"))
+plot4.3 <- VlnPlot(lib4.3, features = c("nFeature_RNA"))
+plot4.4 <- VlnPlot(lib4.4, features = c("nFeature_RNA"))
+plot5.1 <- VlnPlot(lib5.1, features = c("nFeature_RNA"))
+plot5.2 <- VlnPlot(lib5.2, features = c("nFeature_RNA"))
+plot5.3 <- VlnPlot(lib5.3, features = c("nFeature_RNA"))
+plot5.4 <- VlnPlot(lib5.4, features = c("nFeature_RNA"))
+plot5.5 <- VlnPlot(lib5.5, features = c("nFeature_RNA"))
+plot5.6 <- VlnPlot(lib5.6, features = c("nFeature_RNA"))
+plot6.1 <- VlnPlot(lib6.1, features = c("nFeature_RNA"))
+plot6.2 <- VlnPlot(lib6.2, features = c("nFeature_RNA"))
+plot6.3 <- VlnPlot(lib6.3, features = c("nFeature_RNA"))
+plot6.4 <- VlnPlot(lib6.4, features = c("nFeature_RNA"))
+plot6.5 <- VlnPlot(lib6.5, features = c("nFeature_RNA"))
+plot6.6 <- VlnPlot(lib6.6, features = c("nFeature_RNA"))
+
+grid.arrange(plot2.1, plot2.2, plot2.3, plot2.4, plot4.1, plot4.2, plot4.3, plot4.4, plot5.2, plot5.3, plot5.4, plot5.5, plot5.6, plot6.1, plot6.2, plot6.3, plot6.4, plot6.5, plot6.6, nrow = 4, ncol = 5)
+
+grid.arrange(plot6.1, plot6.2, plot6.3, plot6.4, plot6.5, plot6.6, nrow = 2, ncol = 3)
+```
+
+
+```{r fig.height=10, fig.width=13,message=FALSE, warning=FALSE, eval=FALSE}
+plot2.1.2 <- VlnPlot(lib2.1, features = c("nCount_RNA"))
+plot2.2.2 <- VlnPlot(lib2.2, features = c("nCount_RNA"))
+plot2.3.2 <- VlnPlot(lib2.3, features = c("nCount_RNA"))
+plot2.4.2 <- VlnPlot(lib2.4, features = c("nCount_RNA"))
+plot4.1.2 <- VlnPlot(lib4.1, features = c("nCount_RNA"))
+plot4.2.2 <- VlnPlot(lib4.2, features = c("nCount_RNA"))
+plot4.3.2 <- VlnPlot(lib4.3, features = c("nCount_RNA"))
+plot4.4.2 <- VlnPlot(lib4.4, features = c("nCount_RNA"))
+plot5.1.2 <- VlnPlot(lib5.1, features = c("nCount_RNA"))
+plot5.2.2 <- VlnPlot(lib5.2, features = c("nCount_RNA"))
+plot5.3.2 <- VlnPlot(lib5.3, features = c("nCount_RNA"))
+plot5.4.2 <- VlnPlot(lib5.4, features = c("nCount_RNA"))
+plot5.5.2 <- VlnPlot(lib5.5, features = c("nCount_RNA"))
+plot5.6.2 <- VlnPlot(lib5.6, features = c("nCount_RNA"))
+plot6.1.2 <- VlnPlot(lib6.1, features = c("nCount_RNA"))
+plot6.2.2 <- VlnPlot(lib6.2, features = c("nCount_RNA"))
+plot6.3.2 <- VlnPlot(lib6.3, features = c("nCount_RNA"))
+plot6.4.2 <- VlnPlot(lib6.4, features = c("nCount_RNA"))
+plot6.5.2 <- VlnPlot(lib6.5, features = c("nCount_RNA"))
+plot6.6.2 <- VlnPlot(lib6.6, features = c("nCount_RNA"))
+
+grid.arrange(plot2.1.2, plot2.2.2, plot2.3.2, plot2.4.2, plot4.1.2, plot4.2.2, plot4.3.2, plot4.4.2, plot5.2.2, plot5.3.2, plot5.4.2, plot5.5.2, plot5.6.2, nrow = 2, ncol = 7)
+
+grid.arrange(plot6.1.2, plot6.2.2, plot6.3.2, plot6.4.2, plot6.5.2, plot6.6.2, nrow = 2, ncol = 3)
+```
+
+# Calculating Percent of Mito gene expression in each Feature
+
+```{r}
+mito.genes <- read.table(file = "/Users/ao2721/Documents/Tosches Lab /R/SingleCellTosches/mitochondrial_genes_updated.txt")
+mito.genes <- as.character(mito.genes[,1])
+
+mito.genes1.1 <- mito.genes[mito.genes %in% rownames(lib1.1)]
+lib1.1[["percent.mt"]] <- PercentageFeatureSet(lib1.1, features = mito.genes1.1)
+
+mito.genes1.2 <- mito.genes[mito.genes %in% rownames(lib1.2)]
+lib1.2[["percent.mt"]] <- PercentageFeatureSet(lib1.2, features = mito.genes1.2)
+
+mito.genes1.3 <- mito.genes[mito.genes %in% rownames(lib1.3)]
+lib1.3[["percent.mt"]] <- PercentageFeatureSet(lib1.3, features = mito.genes1.3)
+
+mito.genes1.4 <- mito.genes[mito.genes %in% rownames(lib1.4)]
+lib1.4[["percent.mt"]] <- PercentageFeatureSet(lib1.4, features = mito.genes1.4)
+
+mito.genes2.1 <- mito.genes[mito.genes %in% rownames(lib2.1)]
+lib2.1[["percent.mt"]] <- PercentageFeatureSet(lib2.1, features = mito.genes2.1)
+
+mito.genes2.2 <- mito.genes[mito.genes %in% rownames(lib2.2)]
+lib2.2[["percent.mt"]] <- PercentageFeatureSet(lib2.2, features = mito.genes2.2)
+
+mito.genes2.3 <- mito.genes[mito.genes %in% rownames(lib2.3)]
+lib2.3[["percent.mt"]] <- PercentageFeatureSet(lib2.3, features = mito.genes2.3)
+
+mito.genes2.4 <- mito.genes[mito.genes %in% rownames(lib2.4)]
+lib2.4[["percent.mt"]] <- PercentageFeatureSet(lib2.4, features = mito.genes2.4)
+
+mito.genes4.1 <- mito.genes[mito.genes %in% rownames(lib4.1)]
+lib4.1[["percent.mt"]] <- PercentageFeatureSet(lib4.1, features = mito.genes4.1)
+
+mito.genes4.2 <- mito.genes[mito.genes %in% rownames(lib4.2)]
+lib4.2[["percent.mt"]] <- PercentageFeatureSet(lib4.2, features = mito.genes4.2)
+
+mito.genes4.3 <- mito.genes[mito.genes %in% rownames(lib4.3)]
+lib4.3[["percent.mt"]] <- PercentageFeatureSet(lib4.3, features = mito.genes4.3)
+
+mito.genes4.4 <- mito.genes[mito.genes %in% rownames(lib4.4)]
+lib4.4[["percent.mt"]] <- PercentageFeatureSet(lib4.4, features = mito.genes4.4)
+
+mito.genes5.1 <- mito.genes[mito.genes %in% rownames(lib5.1)]
+lib5.1[["percent.mt"]] <- PercentageFeatureSet(lib5.1, features = mito.genes5.1)
+
+mito.genes5.2 <- mito.genes[mito.genes %in% rownames(lib5.2)]
+lib5.2[["percent.mt"]] <- PercentageFeatureSet(lib5.2, features = mito.genes5.2)
+
+mito.genes5.3 <- mito.genes[mito.genes %in% rownames(lib5.3)]
+lib5.3[["percent.mt"]] <- PercentageFeatureSet(lib5.3, features = mito.genes5.3)
+
+mito.genes5.4 <- mito.genes[mito.genes %in% rownames(lib5.4)]
+lib5.4[["percent.mt"]] <- PercentageFeatureSet(lib5.4, features = mito.genes5.4)
+
+mito.genes5.5 <- mito.genes[mito.genes %in% rownames(lib5.5)]
+lib5.5[["percent.mt"]] <- PercentageFeatureSet(lib5.5, features = mito.genes5.5)
+
+mito.genes5.6 <- mito.genes[mito.genes %in% rownames(lib5.6)]
+lib5.6[["percent.mt"]] <- PercentageFeatureSet(lib5.6, features = mito.genes5.6)
+
+mito.genes6.1 <- mito.genes[mito.genes %in% rownames(lib6.1)]
+lib6.1[["percent.mt"]] <- PercentageFeatureSet(lib6.1, features = mito.genes6.1)
+
+mito.genes6.2 <- mito.genes[mito.genes %in% rownames(lib6.2)]
+lib6.2[["percent.mt"]] <- PercentageFeatureSet(lib6.2, features = mito.genes6.2)
+
+mito.genes6.3 <- mito.genes[mito.genes %in% rownames(lib6.3)]
+lib6.3[["percent.mt"]] <- PercentageFeatureSet(lib6.3, features = mito.genes6.3)
+
+mito.genes6.4 <- mito.genes[mito.genes %in% rownames(lib6.4)]
+lib6.4[["percent.mt"]] <- PercentageFeatureSet(lib6.4, features = mito.genes6.4)
+
+mito.genes6.5 <- mito.genes[mito.genes %in% rownames(lib6.5)]
+lib6.5[["percent.mt"]] <- PercentageFeatureSet(lib6.5, features = mito.genes6.5)
+
+mito.genes6.6 <- mito.genes[mito.genes %in% rownames(lib6.6)]
+lib6.6[["percent.mt"]] <- PercentageFeatureSet(lib6.6, features = mito.genes6.6)
+```
+
+# Mitopercent
+
+```{r fig.height=9, fig.width=12,message=FALSE, warning=FALSE}
+plot2.1.3 <- VlnPlot(lib2.1, features = c("percent.mt"))
+plot2.2.3 <- VlnPlot(lib2.2, features = c("percent.mt"))
+plot2.3.3 <- VlnPlot(lib2.3, features = c("percent.mt"))
+plot2.4.3 <- VlnPlot(lib2.4, features = c("percent.mt"))
+plot4.1.3 <- VlnPlot(lib4.1, features = c("percent.mt"))
+plot4.2.3 <- VlnPlot(lib4.2, features = c("percent.mt"))
+plot4.3.3 <- VlnPlot(lib4.3, features = c("percent.mt"))
+plot4.4.3 <- VlnPlot(lib4.4, features = c("percent.mt"))
+plot5.1.3 <- VlnPlot(lib5.1, features = c("percent.mt"))
+plot5.2.3 <- VlnPlot(lib5.2, features = c("percent.mt"))
+plot5.3.3 <- VlnPlot(lib5.3, features = c("percent.mt"))
+plot5.4.3 <- VlnPlot(lib5.4, features = c("percent.mt"))
+plot5.5.3 <- VlnPlot(lib5.5, features = c("percent.mt"))
+plot5.6.3 <- VlnPlot(lib5.6, features = c("percent.mt"))
+plot6.1.3 <- VlnPlot(lib6.1, features = c("percent.mt"))
+plot6.2.3 <- VlnPlot(lib6.2, features = c("percent.mt"))
+plot6.3.3 <- VlnPlot(lib6.3, features = c("percent.mt"))
+plot6.4.3 <- VlnPlot(lib6.4, features = c("percent.mt"))
+plot6.5.3 <- VlnPlot(lib6.5, features = c("percent.mt"))
+plot6.6.3 <- VlnPlot(lib6.6, features = c("percent.mt"))
+
+grid.arrange(plot2.1.3, plot2.2.3, plot2.3.3, plot2.4.3, plot4.1.3, plot4.2.3, plot4.3.3, plot4.4.3, plot5.1.3, plot5.2.3, plot5.3.3, plot5.4.3, plot5.5.3, plot5.6.3, nrow = 2, ncol = 7)
+
+grid.arrange(plot6.1.3, plot6.2.3, plot6.3.3, plot6.4.3, plot6.5.3, plot6.6.3, nrow = 2, ncol = 3)
+
+```
+
+# Merging Seurat objects
+
+```{r fig.height=6, fig.width=12,message=FALSE, warning=FALSE}
+rm(list= ls()[!(ls() %in% c('lib1.1','lib1.2','lib1.3','lib1.4','lib2.1','lib2.2', 'lib2.3', 'lib2.4', 'lib4.1', 'lib4.2', 'lib4.3', 'lib4.4', 'lib5.1', 'lib5.2', 'lib5.3', 'lib5.4', 'lib5.5', 'lib5.6', 'lib6.1', 'lib6.2', 'lib6.3', 'lib6.4', 'lib6.5', 'lib6.6','mito.genes'))])
+
+Pleuro <- merge(lib1.1, y = list(lib1.2, lib1.3, lib1.4, lib2.1, lib2.2, lib2.3, lib2.4, lib4.1, lib4.2, lib4.3, lib4.4, lib5.1, lib5.2, lib5.3, lib5.4, lib5.5, lib5.6, lib6.1, lib6.2, lib6.3, lib6.4, lib6.5, lib6.6), add.cell.ids = c("A1.1","A1.2","A1.3","A1.4","A2.1", "A2.2", "A2.3","A2.4","A4.1","A4.2","A4.3","A4.4","A5.1","A5.2","A5.3","A5.4","A5.5","A5.6","A6.1","A6.2","A6.3","A6.4","A6.5","A6.6"), project = "Pleuro")
+
+
+mito.genesPleuro <- mito.genes[mito.genes %in% rownames(Pleuro)]
+Pleuro[["percent.mt"]] <- PercentageFeatureSet(Pleuro, features = mito.genesPleuro)
+
+# adding metadata to the object
+cell.names <- rownames(Pleuro@meta.data)
+animal <- substr(cell.names, 1, 2)
+library <- substr(cell.names, 1, 4)
+
+tech <- str_replace(animal, "A1", "T1")
+tech <- str_replace(tech, "A2", "T2")
+tech <- str_replace(tech, "A4", "T2")
+tech <- str_replace(tech, "A5", "T2")
+tech <- str_replace(tech, "A6", "T2")
+
+Pleuro@meta.data$animal <- as.factor(animal)
+Pleuro@meta.data$library <- as.factor(library)
+Pleuro@meta.data$tech <- as.factor(tech)
+
+Pleuro
+
+quantile(Pleuro@meta.data$nFeature_RNA)
+table(Pleuro@meta.data$animal)
+
+#rm(list= ls()[!(ls() %in% c('Pleuro'))])
+```
+
+# Filtering Big Seurat 
+
+```{r}
+Pleuro <- subset(Pleuro, subset = nFeature_RNA > 800 & percent.mt < 15)
+saveRDS(Pleuro, "pleuro_all_filter.rds") # From here, transferred to Ginsburg for SCT
+```
+
+```{r fig.height=6, fig.width=12}
+VlnPlot(Pleuro, features = c("nFeature_RNA", "nCount_RNA"), group.by = "library", ncol = 2)
+```
+
+```{r fig.height=6, fig.width=12}
+VlnPlot(Pleuro, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), group.by = "animal", ncol = 3)
+```
+
+```{r eval = FALSE}
+table(Pleuro@meta.data$tech)
+```
+
+# PCA, UMAP, FindNeighbors, FindClusters
+
+```{r fig.height=3, fig.width=3}
+#saveRDS(Pleuro, file = "/Users/ao2721/Documents/Tosches Lab /R/SingleCellTosches/pleuro_iso.rds")
+
+# Pleuro <- SCTransform(Pleuro, vars.to.regress = c("percent.mt","nFeature_RNA","nCount_RNA","animal"), verbose = FALSE)
+# nFeatures, nCounts, percent.mt, animal
+# nFeatures, nCounts, percent.mt, animal, tech
+
+rm(list= ls())
+
+pleuro_unfilter <- readRDS("pleuro_iso_SCT2_all_unfilter.rds")
+pleuro_filter <- readRDS("pleuro_iso_SCT_all_filter.rds")
+
+# ALL RUN IN GINSBURG
+DefaultAssay(pleuro_unfilter) <- "SCT"
+DefaultAssay(pleuro_filter) <- "SCT"
+
+pleuro_filter <- RunPCA(pleuro_filter, npcs = 200)
+pleuro_unfilter <- RunPCA(pleuro_unfilter, npcs = 200)
+
+ElbowPlot(pleuro_filter, ndims = 200)
+ElbowPlot(pleuro_unfilter, ndims = 200)
+
+nPCs = 125
+  
+pleuro_filter <- RunUMAP(pleuro_filter, dims = 1:nPCs, verbose = FALSE)
+pleuro_unfilter <- RunUMAP(pleuro_unfilter, dims = 1:nPCs, verbose = FALSE)
+
+pleuro_filter <- FindNeighbors(pleuro_filter, dims = 1:nPCs, verbose = FALSE)
+pleuro_unfilter <- FindNeighbors(pleuro_unfilter, dims = 1:nPCs, verbose = FALSE)
+
+pleuro_filter <- FindClusters(pleuro_filter, resolution = 2, verbose = FALSE)
+pleuro_unfilter <- FindClusters(pleuro_unfilter, resolution = 2, verbose = FALSE)
+
+DimPlot(pleuro_filter, label = TRUE, reduction = 'umap', label.size = 2, pt.size = 0.3) + NoLegend()
+DimPlot(pleuro_unfilter, label = TRUE, reduction = 'umap', label.size = 2, pt.size = 0.3) + NoLegend()
+
+FeaturePlot(pleuro_filter, features = c("FABP7"), pt.size = 0.1, label = T, label.size = 2)
+FeaturePlot(pleuro_unfilter, features = c("FABP7"), pt.size = 0.1, label = T, label.size = 2)
+
+saveRDS(pleuro_filter, file = "pleuro_iso_SCT2_all_filter.rds") # we will keep working with this object
+saveRDS(pleuro_unfilter, file = "pleuro_iso_SCT2_all_unfilter.rds")
+
+rm(list= ls()[!(ls() %in% c('pleuro_filter','pleuro_unfilter'))])
+```
+
