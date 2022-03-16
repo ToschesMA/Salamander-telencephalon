@@ -1,0 +1,1073 @@
+---
+title: "Single-cell RNA-Seq adult neurons"
+author: Alonso Ortega-Gurrola
+date: | 
+      | Started on 12/09/2021
+      | Compiled: `r format(Sys.Date(), "%B %d, %Y")`
+output:
+  html_document:
+    df_print: paged
+    toc: yes
+    toc_float: no
+  github_document:
+    toc: yes
+  html_notebook:
+    df_print: paged
+    highlight: tango
+    number_sections: yes
+    theme: cosmo
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+editor_options:
+  chunk_output_type: inline
+always_allow_html: yes
+---
+# Libraries
+
+```{r warning=FALSE, message=FALSE}
+library(Seurat)
+library(sctransform)
+library(gridExtra)
+library(dplyr)
+library(tximport)
+library(Matrix)
+library(ggplot2)
+library(stringr)
+library(SeuratWrappers)
+library(dendextend)
+library(dynamicTreeCut)
+library(tibble)
+```
+
+# Creating the neuronal object
+
+This code is the same as the one showed in **cleaning.Rmd** file. We are subsetting on the basis of neuronal markers, calculating PCA with npcs = 400. On the basis of ElbowPlot, we chose 180 as the number of dimensions to use in RunUMAP and FindNeighbors. In terms of clustering, after long deliberation, we settled to **res = 6** as it captured most of the cell diversity. Some adjustments to the neuronal object will be made depending on the details of the clustering. 
+
+```{r fig.height=10, fig.width=10, eval = FALSE}
+neurons <- subset(pleuro, idents = c('0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '12', '13', '14', '15', '16', '17', '18', '19', '22', '24', '25', '26', '27', '28', '29', '30', '31', '32', '33', '35', '37', '38', '39', '40', '41', '42', '43', '45', '46', '47', '48', '49', '50', '51', '52', '54', '55', '56', '57', '58', '59', '60', '62', '64', '65', '66', '67', '68', '69', '70'))
+
+#neurons <- RunPCA(neurons, npcs = 400)
+
+ElbowPlot(neurons, ndims = 350)
+nPCs = 180
+
+neurons <- RunUMAP(neurons, dims = 1:nPCs, verbose = FALSE)
+
+neurons <- FindNeighbors(neurons, dims = 1:nPCs, verbose = FALSE)
+
+neurons <- FindClusters(neurons, resolution = 6, verbose = FALSE)
+
+DimPlot(neurons.2, label = F, reduction = 'umap', label.size = 6, pt.size = 1.2) #+ NoLegend()
+
+#saveRDS(neurons, file = "neurons_180pcs_res6.rds")
+#neurons <- readRDS(file = "neurons_180pcs_res6.rds")
+```
+
+# Preparing data: cleaning bad clusters and Hierarchical Clustering
+
+```{r}
+# DO NOT RUN LOCALLY
+pdf("cells_highlight.pdf")
+list_plots <- list()
+a <- 0
+for(i in 1:length(table(neurons@meta.data$seurat_clusters))) {
+  cells.id <- WhichCells(neurons, idents = a)
+  list_plots[[i]] <- DimPlot(neurons, cells.highlight = cells.id, label = T) + NoLegend()
+  print(list_plots[[i]])
+  a <- a + 1
+}
+dev.off()
+```
+
+We previously ran FindAllMarkers function in the server to discriminate between good and bad clusters. The list of marker genes for all the clusters is loaded here and inspected.
+
+```{r}
+neuron.markers <- read.csv("all_markers_neurons_res6.csv", row.names = 1)
+neuron.markers %>% group_by(cluster) %>% top_n(n = 30, wt = avg_log2FC)
+```
+
+Getting best marker genes (difference between pct.1 - pct.2) for each cluster through FindAllMarkers function ran in HPC.
+
+```{r}
+list_markers <- list()
+a <- 0
+for(i in 1:max(neuron.markers$cluster)) {
+  cluster <- subset(neuron.markers, cluster == a, select = c(gene, pct.1, pct.2))
+  cluster[,4] <- cluster$pct.1 - cluster$pct.2
+  list_markers[[i]] <- cluster
+  a <- a + 1
+}
+```
+
+# Merging and splitting clusters
+## Screening for clusters that might need to be merged
+
+```{r}
+m27.36 <- FindMarkers(neurons, 27, 36)
+abs <- abs(m27.36$avg_log2FC)
+dif <- m27.36$pct.1 - m27.36$pct.2
+m27.36<- cbind(m27.36, abs, dif)
+
+m2.14 <- FindMarkers(neurons, 2, 14)
+abs <- abs(m2.14$avg_log2FC)
+dif <- abs(m2.14$pct.1 - m2.14$pct.2)
+m2.14<- cbind(m2.14, abs, dif)
+
+m21.60 <- FindMarkers(neurons, 21, 60)
+abs <- abs(m21.60$avg_log2FC)
+dif <- abs(m21.60$pct.1 - m21.60$pct.2)
+m21.60<- cbind(m21.60, abs, dif)
+
+m8.83 <- FindMarkers(neurons, 8, 83)
+abs <- abs(m8.83$avg_log2FC)
+dif <- m8.83$pct.1 - m8.83$pct.2
+m8.83 <- cbind(m8.83, abs, dif)
+
+m62.72 <- FindMarkers(neurons, 62, 72)
+abs <- abs(m62.72$avg_log2FC)
+dif <- m62.72$pct.1 - m62.72$pct.2
+m62.72 <- cbind(m62.72, abs, dif)
+
+m15.28 <- FindMarkers(neurons, 15, 28)
+abs <- abs(m15.28$avg_log2FC)
+dif <- m15.28$pct.1 - m15.28$pct.2
+m15.28 <- cbind(m15.28, abs, dif)
+
+m46.71 <- FindMarkers(neurons, 46, 71)
+abs <- abs(m46.71$avg_log2FC)
+dif <- m46.71$pct.1 - m46.71$pct.2
+m46.71 <- cbind(m46.71, abs, dif)
+
+m38.57 <- FindMarkers(neurons, 38, 57)
+abs <- abs(m38.57$avg_log2FC)
+dif <- m38.57$pct.1 - m38.57$pct.2
+m38.57 <- cbind(m38.57, abs, dif)
+
+m33.50 <- FindMarkers(neurons, 33, 50)
+abs <- abs(m33.50$avg_log2FC)
+dif <- m33.50$pct.1 - m33.50$pct.2
+m33.50 <- cbind(m33.50, abs, dif)
+
+m26.56 <- FindMarkers(neurons, 26, 56)
+abs <- abs(m26.56$avg_log2FC)
+dif <- abs(m26.56$pct.1 - m26.56$pct.2)
+m26.56 <- cbind(m26.56, abs, dif)
+
+m24.49 <- FindMarkers(neurons, 24, 49)
+abs <- abs(m24.49$avg_log2FC)
+dif <- abs(m24.49$pct.1 - m24.49$pct.2)
+m24.49 <- cbind(m24.49, abs, dif)
+
+m12.42 <- FindMarkers(neurons, 12, 42)
+abs <- abs(m12.42$avg_log2FC)
+dif <- m12.42$pct.1 - m12.42$pct.2
+m12.42 <- cbind(m12.42, abs, dif)
+
+m29.41 <- FindMarkers(neurons, 29, 41)
+abs <- abs(m29.41$avg_log2FC)
+dif <- m29.41$pct.1 - m29.41$pct.2
+m29.41 <- cbind(m29.41, abs, dif)
+
+m0.32 <- FindMarkers(neurons, 0, 32)
+abs <- abs(m0.32$avg_log2FC)
+dif <- m0.32$pct.1 - m0.32$pct.2
+m0.32 <- cbind(m0.32, abs, dif)
+
+m6.19 <- FindMarkers(neurons, 6, 19)
+abs <- abs(m6.19$avg_log2FC)
+dif <- m6.19$pct.1 - m6.19$pct.2
+m6.19 <- cbind(m6.19, abs, dif)
+
+m1.51 <- FindMarkers(neurons, 1, 51)
+abs <- abs(m1.51$avg_log2FC)
+dif <- m1.51$pct.1 - m1.51$pct.2
+m1.51 <- cbind(m1.51, abs, dif)
+
+m4.35  <- FindMarkers(neurons, 4, 35)
+abs <- abs(m4.35$avg_log2FC)
+dif <- m4.35$pct.1 - m4.35$pct.2
+m4.35 <- cbind(m4.35, abs, dif)
+
+m47.100  <- FindMarkers(neurons, 47, 100)
+abs <- abs(m47.100$avg_log2FC)
+dif <- m47.100$pct.1 - m47.100$pct.2
+m47.100 <- cbind(m47.100, abs, dif)
+
+m11.3  <- FindMarkers(neurons, 11, 3)
+abs <- abs(m11.3$avg_log2FC)
+dif <- m11.3$pct.1 - m11.3$pct.2
+m11.3 <- cbind(m11.3, abs, dif)
+
+m118.120  <- FindMarkers(neurons, 118, 120)
+abs <- abs(m118.120$avg_log2FC)
+dif <- abs(m118.120$pct.1 - m118.120$pct.2)
+m118.120 <- cbind(m118.120, abs, dif)
+
+m45  <- FindMarkers(neurons, ident.1 = 45)
+abs <- abs(m45$avg_log2FC)
+dif <- abs(m45$pct.1 - m45$pct.2)
+m45 <- cbind(m45, abs, dif)
+```
+
+```{r fig.height=10, fig.width=10}
+FeaturePlot(neurons, features = c("TAC1", "SST", "nr2f5", "PCDH20", "NR2F2", "NPAS1", "COL25A1", "GABRA3", "NPBWR1"), label = T, label.size = 2, pt.size = 1.5, cells = WhichCells(neurons, idents = c(73, 53, 33, 50, 68, 45, 120, 118, 99, 40, 109, 82)))
+```
+
+
+## Correcting cluster size in LP 
+
+```{r}
+new.ids <- c('14'
+,'18'
+,'2')
+names(new.ids) <- levels(ex)
+ex <- RenameIdents(ex, new.ids)
+
+DimPlot(ex)
+
+new.names <- as.character(Idents(ex))
+names(new.names) <- names(Idents(ex))
+
+old.names <- as.character(Idents(neurons))
+names(old.names) <- names(Idents(neurons))
+neurons <- SetIdent(neurons, cells = names(new.names), value = new.names)
+```
+
+## For merging DP clusters
+
+```{r}
+ex.2 <- subset(neurons, idents = c("3", "11", "16", "23", "61"))
+
+ex.2 <- SCTransform(ex.2, vars.to.regress = c("percent.mt", "nFeature_RNA", "nCount_RNA", "animal"))
+
+ex.2 <- RunPCA(ex.2, npcs=200)
+
+ElbowPlot(ex.2, ndims=200)
+ndims = 25
+
+ex.2 <- RunUMAP(ex.2, dims=1:ndims)
+
+ex.2 <- FindNeighbors(ex.2, dims=1:ndims)
+
+ex.2 <- FindClusters(ex.2, resolution = 0.25)
+
+#p1 <- DimPlot(ex.2, reduction = 'umap', label = T, label.size = 2)
+#p2 <- FeaturePlot(ex.2, features = c("ADARB2", "PENK", "ETV1", "NR2F2"))
+#p3 <- DimPlot(ex.2, reduction = 'umap', label = T, label.size = 0.2, group.by = "animal") + NoLegend()
+
+new.ids <- c('23'
+,'3'
+,'16'
+,'61')
+names(new.ids) <- levels(ex.2)
+ex.2 <- RenameIdents(ex.2, new.ids)
+
+DimPlot(ex.2)
+
+new.names <- as.character(Idents(ex.2))
+names(new.names) <- names(Idents(ex.2))
+
+old.names <- as.character(Idents(neurons))
+names(old.names) <- names(Idents(neurons))
+neurons <- SetIdent(neurons, cells = names(new.names), value = new.names)
+```
+
+## Merging cluster 21 and 60 
+
+```{r}
+ex.3 <- subset(neurons, idents = c("21", "60"))
+
+new.ids <- c('21'
+,'21')
+names(new.ids) <- levels(ex.3)
+ex.3 <- RenameIdents(ex.3, new.ids)
+
+DimPlot(ex.3)
+new.names <- as.character(Idents(ex.3))
+names(new.names) <- names(Idents(ex.3))
+
+old.names <- as.character(Idents(neurons))
+names(old.names) <- names(Idents(neurons))
+neurons <- SetIdent(neurons, cells = names(new.names), value = new.names)
+```
+
+## Removing bad cells (5, 31, 40, 43, 69, 93, 109, 114 and 115)
+
+```{r fig.height=10, fig.width=10}
+rm(list= ls()[!(ls() %in% c('neurons.2', 'pleuro.dotplot'))])
+
+neurons.2 <- subset(neurons, idents = c('5', '31', '40', '43', '69','90', '93', '109', '114', '115'), invert = TRUE)
+
+# For removing a small cluster of oligodendrocytes
+neurons.2 <- subset(neurons.2, idents = "TEGABA1", invert = TRUE)
+neurons.2 <- RunUMAP(neurons.2, dims=1:180)
+
+DimPlot(neurons.2, label = TRUE, reduction = 'umap', label.size = 6, pt.size = 1.2) + NoLegend()
+```
+
+## For merging LP clusters (correcting cluster size)
+
+```{r}
+ex <- subset(example, idents = c("TEGLU12", "TEGLU13", "TEGLU15"))
+
+ex <- SCTransform(ex, vars.to.regress = c("percent.mt", "nFeature_RNA", "nCount_RNA", "animal"))
+
+ex <- RunPCA(ex, npcs=200)
+
+ElbowPlot(ex, ndims=200)
+ndims = 25
+
+ex <- RunUMAP(ex, dims=1:ndims)
+
+ex <- FindNeighbors(ex, dims=1:ndims)
+
+ex <- FindClusters(ex, resolution = 0.4)
+DimPlot(ex, reduction="umap", label=T, pt.size = 1) + NoLegend() 
+```
+
+## SPLITTING CLUSTERS TEGLU19, TEGLU12 and TEGLU20
+
+After slitting, correcting cluster size and analyzing the data, we realized that there were some clusters that needed further work in terms of slitting or correcting size. We proceeded to work on this: **TEGLU12, TEGLU19 and TEGLU20**.
+
+```{r fig.height=6, fig.width=6}
+# TEGLU19 is the NTS expressing cluster that is clustering, in the taxonomy, with ventral pallium, but this doesn't make much sense in the light of ISH, thus, we will try to split on the basis of Emx1 expression
+
+ex.4 <- subset(neurons.2, idents = "TEGLU19")
+
+ex.4 <- RunPCA(ex.4, npcs=200)
+
+ElbowPlot(ex.4, ndims=200)
+ndims = 10
+
+ex.4 <- RunUMAP(ex.4, dims=1:ndims)
+
+ex.4 <- FindNeighbors(ex.4, dims=1:ndims)
+
+ex.4 <- FindClusters(ex.4, resolution = 0.25)
+
+p1 <- DimPlot(ex.4, reduction = 'umap', label = T, label.size = 2)
+p2 <- FeaturePlot(ex.4, features = c("EMX1", "TBR1", "SOX6", "ZBTB16"))
+
+markers.nts <- FindAllMarkers(ex.4)
+
+cluster0 <- subset(markers.nts, cluster == 0, select = c(gene, pct.1, pct.2)) # Good
+cluster0[,4] <- cluster0$pct.1 - cluster0$pct.2
+
+cluster1 <- subset(markers.nts, cluster == 1, select = c(gene, pct.1, pct.2)) # Good cluster
+cluster1[,4] <- cluster1$pct.1 - cluster1$pct.2
+
+new.ids <- c('TEGLU19.1'
+,'TEGLU19.2'
+)
+
+names(new.ids) <- levels(ex.4)
+ex.4 <- RenameIdents(ex.4, new.ids)
+
+DimPlot(ex.4)
+
+new.names <- as.character(Idents(ex.4))
+names(new.names) <- names(Idents(ex.4))
+
+old.names <- as.character(Idents(neurons.2))
+names(old.names) <- names(Idents(neurons.2))
+neurons.2 <- SetIdent(neurons.2, cells = names(new.names), value = new.names)
+```
+
+```{r fig.height=10, fig.width=10}
+#TEGLU12
+
+ex.5 <- subset(neurons.2, idents = "TEGLU12")
+
+ex.5 <- RunPCA(ex.5, npcs=200)
+
+ElbowPlot(ex.5, ndims=200)
+ndims = 25
+
+ex.5 <- RunUMAP(ex.5, dims=1:ndims)
+
+ex.5 <- FindNeighbors(ex.5, dims=1:ndims)
+
+ex.5 <- FindClusters(ex.5, resolution = 0.25)
+
+p1 <- DimPlot(ex.5, reduction = 'umap', label = T, label.size = 2)
+p2 <- FeaturePlot(ex.5, features = c("SATB1", "ZBTB20", "VAT1", "SOX5"))
+
+#p1 + p2 
+#p2
+markers.bridge <- FindAllMarkers(ex.5)
+
+cluster0.b <- subset(markers.bridge, cluster == 0, select = c(gene, pct.1, pct.2)) # Good
+cluster0.b[,4] <- cluster0.b$pct.1 - cluster0.b$pct.2
+
+cluster1.b <- subset(markers.bridge, cluster == 1, select = c(gene, pct.1, pct.2)) # Good cluster
+cluster1.b[,4] <- cluster1.b$pct.1 - cluster1.b$pct.2
+
+new.ids <- c('TEGLU12.1'
+,'TEGLU12.2'
+)
+
+names(new.ids) <- levels(ex.5)
+ex.5 <- RenameIdents(ex.5, new.ids)
+
+DimPlot(ex.5)
+
+new.names <- as.character(Idents(ex.5))
+names(new.names) <- names(Idents(ex.5))
+
+old.names <- as.character(Idents(neurons.2))
+names(old.names) <- names(Idents(neurons.2))
+neurons.2 <- SetIdent(neurons.2, cells = names(new.names), value = new.names)
+
+DimPlot(neurons.2, label = TRUE, reduction = 'umap', label.size = 6, pt.size = 1.2) + NoLegend()
+```
+
+```{r fig.height=10, fig.width=10}
+#TEGLU20
+ex.6 <- subset(neurons.2, idents = "TEGLU20")
+
+ex.6 <- RunPCA(ex.6, npcs=200)
+
+ElbowPlot(ex.6, ndims=200)
+ndims = 25
+
+ex.6 <- RunUMAP(ex.6, dims=1:ndims)
+
+ex.6 <- FindNeighbors(ex.6, dims=1:ndims)
+
+ex.6 <- FindClusters(ex.6, resolution = 0.25)
+
+p1 <- DimPlot(ex.6, reduction = 'umap', label = T, label.size = 2)
+p2 <- FeaturePlot(ex.6, features = c("NDST4", "LHX2", "SOX6", "NTS"), label = T)
+p3 <- FeaturePlot(ex.6, features = c("DRAXIN", "NOS1", "PBX3", "CALB2"), label = T)
+
+p1
+p2
+p3
+
+markers.20 <- FindAllMarkers(ex.6)
+
+cluster0.20 <- subset(markers.20, cluster == 0, select = c(gene, pct.1, pct.2)) # Good
+cluster0.20[,4] <- cluster0.20$pct.1 - cluster0.20$pct.2
+
+cluster1.20 <- subset(markers.20, cluster == 1, select = c(gene, pct.1, pct.2)) # Good cluster
+cluster1.20[,4] <- cluster1.20$pct.1 - cluster1.20$pct.2
+
+new.ids <- c('TEGLU20.1'
+,'TEGLU20.2'
+)
+
+names(new.ids) <- levels(ex.6)
+ex.6 <- RenameIdents(ex.6, new.ids)
+
+DimPlot(ex.6)
+
+new.names <- as.character(Idents(ex.6))
+names(new.names) <- names(Idents(ex.6))
+
+old.names <- as.character(Idents(neurons.2))
+names(old.names) <- names(Idents(neurons.2))
+neurons.2 <- SetIdent(neurons.2, cells = names(new.names), value = new.names)
+
+DimPlot(neurons.2, label = TRUE, reduction = 'umap', label.size = 6, pt.size = 1.2) + NoLegend()
+```
+
+# Cluster renaming
+
+```{r}
+new.cluster.ids <- c('TEGABA61'
+,'TEGABA36'
+,'TEGLU5'#
+,'TEGABA38'
+,'DIMEGLU7'
+,'DIMEGABA2'
+,'TEGABA12'
+,'TEGABA54'
+,'TEGABA29'
+,'TEGABA52'
+,'TEGABA59'
+,'TEGABA9'
+,'TEGABA57'
+,'TEGLU27' #
+,'TEGABA64'
+,'TEGABA8'
+,'DIMEGLU9'
+,'TEGABA11'
+,'TEGABA47'
+,'TEGABA65'
+,'TEGABA17'
+,'TEGABA13'
+,'TEGLU19' #
+,'TEGABA3'
+,'TEGABA32'
+,'TEGABA56'
+,'TEGABA28'
+,'TEGLU36'#
+,'TEGABA15'
+,'TEGABA53'
+,'TEGLU18'#
+,'TEGLU32'#
+,'TEGABA14'
+,'TEGABA20'
+,'TEGABA35'
+,'TEGLU3'#
+,'TEGLU21'#
+,'TEGABA6'
+,'TEGLU11'#
+,'TEGLU23'#
+,'TEGLU28'#
+,'TEGLU13'#
+,'TEGLU24'#
+,'TEGABA40'
+,'DIMEGABA1'
+,'TEGLU16'#
+,'DIMEGLU8'
+,'TEGLU31'#
+,'TEGLU17'#
+,'TEGABA4'
+,'TEGABA46'
+,'TEGLU38'#
+,'TEGABA51'
+,'TEGABA48'
+,'TEGABA31'
+,'TEGABA60'
+,'TEGABA49'
+,'TEGLU33'#
+,'TEGABA34'
+,'TEGLU25'#
+,'TEGABA7'
+,'TEGABA33'
+,'TEGLU10'#
+,'TEGLU6'#
+,'DIMEGLU4'
+,'TEGABA39'
+,'TEGLU20'#
+,'TEGABA1'
+,'TEGLU26'#
+,'TEGABA5'
+,'DIMEGLU6'
+,'DIMEGLU3'
+,'TEGABA19'
+,'TEGABA44'
+,'TEGABA58'
+,'TEGLU14'#
+,'TEGLU22'#
+,'TEGLU30'#
+,'TEGLU9'#
+,'TEGABA16'
+,'DIMEGLU2'
+,'TEGLU12'#
+,'TEGABA22'
+,'TEGABA63'
+,'TEGABA50'
+,'TEGABA23'
+,'TEGABA43'
+,'TEGABA45'
+,'TEGLU7'#
+,'TEGABA27'
+,'TEGABA26'
+,'TEGLU1'#
+,'TEGLU15'#
+,'TEGLU35'#
+,'DIMEGLU1'
+,'TEGLU34'#
+,'DIMEGLU5'
+,'TEGLU4'#
+,'TEGABA42'
+,'TEGABA30'
+,'TEGLU37'#
+,'TEGABA18'
+,'TEGABA24'
+,'TEGLU8'#
+,'TEGLU29'#
+,'TEGABA2'
+,'TEGABA62'
+,'TEGLU2'#
+,'TEGABA10'
+,'TEGABA25'
+,'TEGABA41'
+,'TEGABA37'
+,'TEGABA55'
+,'TEGABA21')
+names(new.cluster.ids) <- levels(neurons.2)
+neurons.2 <- RenameIdents(neurons.2, new.cluster.ids)
+```
+
+## Final DimPlot for neuronal object
+
+```{r fig.height=6, fig.width=6}
+lev <- levels(Idents(neurons.2))
+Idents(neurons.2) <- factor(Idents(neurons.2), levels=sample(lev))
+neurons.2[['cluster_label']] <- Idents(neurons.2)
+
+saveRDS(neurons.2, file = "neurons_final4.rds")
+
+pdf(paste0("neuronalUMAP_label.pdf"), width=20, height=20)
+DimPlot(neurons.2, reduction = 'umap', pt.size = 0.05, label = T, label.size = 3, repel = T) + NoLegend()
+dev.off()
+```
+
+# HIERARCHICAL CLUSTERING
+
+```{r fig.width=11, fig.height=6}
+rm(list= ls()[!(ls() %in% c('neurons.2'))])
+
+#neurons.2 <- readRDS("neurons_final4.rds")
+hvg <- VariableFeatures(neurons.2)
+
+# In Ginsburg
+object_avg <- AverageExpression(neurons.2)
+object_avg_data <- object_avg[[2]]
+
+write.csv(object_avg_data, file = "object_avg_data.csv")
+#object_avg_data <- read.csv("average_matrix_SCT_test.csv", row.names = 1)
+#colnames(object_avg_data) <- new.cluster.ids
+
+object_avg_data_hvg <- object_avg_data[rownames(object_avg_data) %in% hvg,]
+
+object_cor_hvg <- cor(object_avg_data_hvg, method= "s")
+object_dist_hvg <- as.dist(1 - object_cor_hvg)
+
+object_dendrogram_hvg <- hclust(object_dist_hvg, method = "ward.D2")
+
+plot(object_dendrogram_hvg, hang = -1)
+```
+
+
+## P-values for hClust
+
+```{r fig.width=11, fig.height=6}
+library(pvclust)
+
+dist_func <- function(x){x <- as.dist(1-cor(x, method="s"))}
+
+pvclust_res <- pvclust(object_avg_data_hvg, method.dist=dist_func, method.hclust="ward.D2", nboot = 10)
+
+pvclust_res <- readRDS("pvclust_res_final.rds")
+
+hc <- as.dendrogram(pvclust_res)
+dend <- click_rotate(hc, continue = TRUE)
+
+plot(pvclust_res, hang = -1)
+```
+
+```{r fig.width=11, fig.height=6}
+png(paste0("hClust_pval.png"), width=20, height=10, units = "in", res=400)
+dend %>% pvclust_show_signif_gradient(pvclust_res, signif_col_fun = colorRampPalette(c("lightgray","grey","black")), signif_type="au") %>% plot(main = "Final dendrogram with p-values")
+dev.off()
+```
+
+## Final hClust with pvalues
+
+```{r fig.width=11, fig.height=6}
+pdf(paste0("hClust_pval_final.pdf"), width=20, height=10)
+dend %>% pvclust_show_signif_gradient(pvclust_res, signif_col_fun = colorRampPalette(c("lightgrey","grey","black")), signif_type="au") %>% plot(main = "Final dendrogram with p-values")
+dev.off()
+```
+
+## Dendrogram object with rotated branches
+
+```{r}
+saveRDS(dend, file = "final_dendrogram.rds")
+```
+
+# Grouping neurons for grouped object 
+
+```{r}
+new.cluster.ids.group <- c('STR'
+,'SEP'
+,'MP'#
+,'SEP'
+,'DIME'
+,'DIME'
+,'OBG'
+,'STR'
+,'SPN'
+,'STR'
+,'STR'
+,'OBG'
+,'STR'
+,'MT' #
+,'STR'
+,'OBG'
+,'DIME'
+,'OBG'
+,'SEP'
+,'STR'
+,'OBG'
+,'OBG'
+,'VP' #
+,'OBG'
+,'SPN'
+,'STR'
+,'TEGABA28'
+,'VCP'#
+,'OBG'
+,'STR'
+,'VP'#
+,'TEGLU32'#
+,'OBG'
+,'INs'
+,'SPN'
+,'MP'#
+,'VP'#
+,'OBG'
+,'DP'#
+,'VP'#
+,'MT'#
+,'DP'#
+,'VP'#
+,'SEP'
+,'DIME'
+,'LP'#
+,'DIME'
+,'MT'#
+,'VP'#
+,'OBG'
+,'SEP'
+,'SEP'#
+,'SEP'
+,'SEP'
+,'SPN'
+,'STR'
+,'SEP'
+,'VCP'#
+,'SPN'
+,'VP'#
+,'OBG'
+,'SPN'
+,'DP'#
+,'MP'#
+,'DIME'
+,'SEP'
+,'DP'#
+,'OBG'
+,'MT'#
+,'OBG'
+,'DIME'
+,'DIME'
+,'INs'
+,'SEP'
+,'STR'
+,'LP'#
+,'VP'#
+,'MT'#
+,'DP'#
+,'OBG'
+,'DIME'
+,'LP'#
+,'INs'
+,'STR'
+,'SEP'
+,'INs'
+,'SEP'
+,'SEP'
+,'MP'#
+,'INs'
+,'INs'
+,'MP'#
+,'LP'#
+,'VCP'#
+,'DIME'
+,'VCP'#
+,'DIME'
+,'MP'#
+,'SEP'
+,'SPN'
+,'VCP'#
+,'INs'
+,'INs'
+,'DP'#
+,'MT'#
+,'OBG'
+,'STR'
+,'MP'#
+,'OBG'
+,'INs'
+,'SEP'
+,'SEP'
+,'STR'
+,'INs')
+
+neurons.grouped <- neurons.2
+names(new.cluster.ids.group) <- levels(neurons.grouped)
+neurons.grouped <- RenameIdents(neurons.grouped, new.cluster.ids.group)
+```
+
+
+```{r fig.width=10, fig.height=10}
+pal <- c("#F8766D", "#0CB702", "#00A9FF", "#C77CFF", "#ED68ED", "#ABA300", "#8494FF", "#7CAE00", "#CD9600", "#00BFC4", "#00C19A", "#E68613", "darkgrey", "darkgrey")
+
+levels(neurons.grouped) <- c("MP", "LP", "DP",  "VP", "STR", "MT", "INs", "SEP", "SPN", "DIME",  "OBG", "VCP", "TEGABA28", "TEGLU32")
+DimPlot(neurons.grouped, reduction = 'umap', pt.size = 0.5, cols = pal) #+ NoLegend()
+
+saveRDS(neurons.grouped, file = "grouped_neurons_final.rds")
+```
+
+```{r fig.width=10, fig.height=10}
+png(paste0("neuronalUMAP_grouped.png"), width=10, height=10, units = "in", res=400)
+DimPlot(neurons.grouped, reduction = 'umap', pt.size = 0.5, cols = pal) + NoLegend()
+dev.off()
+```
+
+```{r fig.width=10, fig.height=10}
+pdf(paste0("neuronalUMAP_grouped.pdf"), width=10, height=10)
+DimPlot(neurons.grouped, reduction = 'umap', pt.size = 0.5, cols = pal) + NoLegend()
+dev.off()
+```
+
+# GABAergic and Glutamatergic cells
+
+```{r}
+plot1 <- FeaturePlot(grouped.neurons, features = c("SLC17A6","GAD2"), pt.size = 0.05, blend = TRUE, cols =      c("lightgrey", "#00BFC4", "#F8766D"),  min.cutoff = 0, max.cutoff = 1) + coord_cartesian(xlim = c(-15,15), ylim = c(-15,15))
+```
+
+```{r}
+png(paste0("neuronalUMAP_GAD1_SLC17A7.png"), width=10, height=10, units = "in", res=400)
+plot1[[3]]  + labs(title = NULL)
+dev.off()
+```
+
+# ANNOTATION
+## DISCERNING BTW SEPTUM AND STRIATUM 
+
+```{r fig.height=3, fig.width=8}
+FeaturePlot(neurons.2, features = c("ZIC1", "ISL1"), blend = T, pt.size = 0.5, min.cutoff = 0, max.cutoff = 1) #+ NoLegend()
+```
+
+What are the ZIC1+ ISL1+ cells? Could it be BST? (Anatomy)
+                                Could it be Diagonal Band of Broca? (Medial nucleus of septum)
+                                Accumbens?
+                                In original dataset, annotated as DB, but it does not include the whole ISL1+
+
+## DISCERNING PALLIDUM VS STRIATUM
+
+```{r fig.height=3, fig.width=8}
+FeaturePlot(neurons.2, features = c("NKX2-1", "ISL1"), blend = T, pt.size = 0.5, min.cutoff = 0, max.cutoff = 1) #+ NoLegend()
+```
+
+Seems that ISL and NKX2.1 draws a nice boundary, consistent with the fact that NKX2.1 might show MGE (pallidum). Does Accumens also express NKX2.1? It is annotated as such in the original datset. 
+
+**The rest of the striatum seems, at least to me, to be corrrectly annotated. It contains a subset of the ISL1+ cells, only to be merged with NKX2.1 at the DIME region**. However, there is a big cluster of cells annotated as subpallium that is not expressing ISL1 (next to INs).
+
+```{r fig.height=3, fig.width=8}
+FeaturePlot(neurons.2, features = c("TAC1", "PENK"), blend = T, pt.size = 0.5, min.cutoff = 0, max.cutoff = 1) #+ NoLegend()
+```
+
+Subpallial TAC1/PENK shows staining in the striatum, defining two layers. The striatal ISL- cluster described above is now PENK+. Striatal ISL1+ is also TAC1+. Seems to me that striatum is well annotated at this level. 
+
+```{r fig.height=3, fig.width=8}
+FeaturePlot(neurons.2, features = c("ISL1", "NR2F1"), pt.size = 0.5, blend = T, min.cutoff = 0, max.cutoff = 1)
+```
+
+```{r fig.height=3, fig.width=8}
+FeaturePlot(neurons.2, features = c("ZIC1", "SST"), pt.size = 0.5, blend = T)
+```
+
+```{r fig.height=3, fig.width=8}
+FeaturePlot(neurons.2, features = c("DLX5", "NKX2-1"), pt.size = 0.5, blend = T)
+```
+
+```{r fig.height=3, fig.width=8}
+FeaturePlot(neurons.2, features = c("LHX6", "LHX8"), pt.size = 0.5, blend = T)
+```
+
+```{r fig.height=3, fig.width=8}
+FeaturePlot(neurons.2, features = c("ISL1", "NKX2-1"), pt.size = 0.5, blend = T)
+```
+
+```{r fig.height=3, fig.width=8}
+FeaturePlot(neurons.2, features = c("ISL1", "ADARB2"), pt.size = 0.5, blend = T)
+```
+
+## Linnarsson, 2022 (EEL Spatial)
+
+```{r fig.height=6, fig.width=8}
+FeaturePlot(neurons.2, features = c("ADARB2", "DRD1", "DRD2")) + ggtitle('Striatum medium spiny neurons')
+```
+
+```{r fig.height=6, fig.width=8}
+# 'MGE-derived subpallial projection neurons? Cholinergic neurons in the subpallium?'
+FeaturePlot(neurons.2, features = c("ISL1", "LHX8", "GBX2", "NKX2-1"), pt.size = 0.5)
+```
+
+```{r fig.height=6, fig.width=8}
+# VCP 
+FeaturePlot(neurons.2, features = c("KCNG1", "ADCYAP1", "ADCY8", "BDNF"), pt.size = 0.1, label = T, label.size = 1)
+```
+
+```{r fig.height=6, fig.width=8}
+# VCP 
+FeaturePlot(neurons.2, features = c("DRD1", "ADORA1", "GNAL", "PPP1R1B"), pt.size = 0.1, label = T, label.size = 1)
+```
+
+```{r fig.height=6, fig.width=8}
+# VCP 
+FeaturePlot(neurons.2, features = c("LHX9", "ZIC1", "NR2F2", "DACH2"), pt.size = 0.1, label = T, label.size = 1)
+```
+
+```{r fig.height=6, fig.width=8}
+# VCP 
+FeaturePlot(neurons.2, features = c("OXTR", "BMP3", "LYPD1", "KCNG1"), pt.size = 0.1, label = T, label.size = 1)
+```
+
+## Subpallial annotation with integrated object mouse - salamander
+
+```{r fig.height=16, fig.width=18}
+int <- readRDS("I8_220117_CCA__integration_zeisel_yao_salamander_Dims80_features_2000.rds")
+
+DimPlot(int, reduction = 'umap', label = T, group.by = "cluster_label", raster = F, pt.size = 1) + NoLegend()
+```
+
+```{r fig.height=16, fig.width=18}
+cells <- WhichCells(int, cells = Cells(int)[int@meta.data$cluster_label == c("TEGLU30", "TEGLU31", "TEGLU32", "TEGLU33", "TEGLU34")])
+DimPlot(int, reduction = 'umap', label = T, group.by = "cluster_label", raster = F, pt.size = 1,  cells.highlight = cells) + NoLegend()
+```
+
+```{r fig.height=6, fig.width=6}
+cells.2 <- WhichCells(neurons.2, cells = Cells(neurons.2)[neurons.2@meta.data$cluster_labels == c("TEGABA38")])
+DimPlot(neurons.2, reduction = 'umap', pt.size = 0.05, label = T, label.size = 3, repel = T, cells.highlight = cells.2) + NoLegend() + ggtitle("Inhibitory neurons from septal nucleus/pallidum (43 and 47 missing)")
+```
+
+# Neuronal Dotplot
+
+```{r fig.height=10, fig.width=5}
+markers <- read.csv("all_markers_neurons_final4.csv", row.names = 1)
+diff <- markers$pct.1 - markers$pct.2
+markers <- cbind(markers, diff)
+
+teglu32 <- subset(markers, markers$cluster == "TEGLU32")
+tegaba28 <- subset(markers, markers$cluster == "TEGABA28")
+
+library(dplyr)
+teglu32 %>% top_n(20, diff) -> top20.teglu32
+tegaba28 %>% top_n(20, diff) -> top20.tegaba28
+write.csv(teglu32, file = "markers_TEGLUT32.csv")
+write.csv(tegaba28, file = "markers_tegaba28.csv")
+neurons.2 <- readRDS("neurons_final4.rds")
+
+hClust.order <- c("TEGLU1", "TEGLU2", "TEGLU4", "TEGLU5", "TEGLU3", "TEGLU6", "TEGLU7", "TEGLU14", "TEGLU15", "TEGLU16", "TEGLU12", "TEGLU11", "TEGLU9", "TEGLU10", "TEGLU8", "TEGLU13", "TEGLU20", "TEGLU25", "TEGLU24", "TEGLU23", "TEGLU22", "TEGLU19", "TEGLU17", "TEGLU18", "TEGLU21", "TEGLU26", "TEGLU27", "TEGLU28", "TEGLU29", "TEGLU31", "TEGLU30", "TEGLU36", "TEGLU37", "TEGLU35", "TEGLU33", "TEGLU34", "TEGABA52",  "TEGABA53", "TEGABA58", "TEGABA54", "TEGABA55", "TEGABA57", "TEGABA56", "TEGABA59", "TEGABA61", "TEGABA60", "TEGABA62", "TEGABA63", "TEGABA64", "TEGABA65", "TEGABA34", "TEGABA35", "TEGABA33", "TEGABA31", "TEGABA32", "TEGABA30", "TEGABA29", "TEGLU32", "TEGABA28", "DIMEGLU8", "DIMEGABA2", "DIMEGLU9", "DIMEGLU4", "DIMEGABA1", "DIMEGLU5", "DIMEGLU6", "DIMEGLU7", "DIMEGLU2", "DIMEGLU3", "DIMEGLU1", "TEGABA37", "TEGABA36", "TEGABA38", "TEGABA51", "TEGABA48", "TEGABA47", "TEGABA46", "TEGABA50", "TEGABA49", "TEGABA39", "TEGABA40", "TEGABA42", "TEGABA43", "TEGABA45", "TEGABA44", "TEGLU38", "TEGABA41", "TEGABA25", "TEGABA26", "TEGABA24", "TEGABA23", "TEGABA27", "TEGABA22", "TEGABA21", "TEGABA20", "TEGABA18", "TEGABA19", "TEGABA16",  "TEGABA17", "TEGABA14", "TEGABA15", "TEGABA13", "TEGABA12", "TEGABA10", "TEGABA11", "TEGABA8", "TEGABA9", "TEGABA7", "TEGABA6", "TEGABA5", "TEGABA4", "TEGABA2", "TEGABA3", "TEGABA1")
+
+levels(neurons.2) <- hClust.order
+```
+
+```{r fig.height=12, fig.width=6}
+png(paste0("DotPlot_neurons.png"), width=9, height=20, units = "in", res=400)
+DotPlot(neurons.2, features = c("SLC17A7", "SLC17A6", "GAD1", "GAD2", "FOXG1", "TCF7L2", "EBF3", "EBF2", "TBX21", "EMX1", "NEUROD6", "TBR1", "LHX2", "ZEB2", "DLX5", "TSHZ1", "SP9", "LHX6", "ZIC2", "ISL1", "TAC1", "NKX2-1"), idents = hClust.order) + RotatedAxis()
+dev.off()
+```
+```{r fig.height=12, fig.width=6}
+#Subpallial
+pdf(paste0("DotPlot_neurons.pdf"), width=9, height=20)
+DotPlot(neurons.2, features = c("SLC17A7", "SLC17A6", "GAD1", "GAD2", "FOXG1", "TCF7L2", "EBF3", "EBF2", "TBX21", "EMX1", "NEUROD6", "TBR1", "LHX2", "ZEB2", "DLX5", "TSHZ1", "SP9", "LHX6", "ZIC2", "ISL1", "TAC1", "NKX2-1"), idents = hClust.order) + RotatedAxis()
+dev.off()
+```
+
+## Dotplot for subpallial annotation
+
+```{r fig.height=12, fig.width=6}
+DotPlot(neurons.2, features = c("MEIS2", "GAD2", "PRDM16", "ZIC2", "ZIC3", "SP9", "SP8", "OPRK1", "OTX2", "LHX8", "GFRA4", "SHB", "LAMP5", "ELFN1", "DLX5", "ISL1", "PENK", "TAC1", "PAX6", "SV2C", "DRD1", "PDYN", "RASD2", "STK32B", "ADARB2", "NKX2-1", "NR2F2", "ADCYAP1", "BDNF", "TBR1", "ADCY8", "PROX1", "ELAVL4"), idents = c("TEGABA41", "TEGLU35", "TEGABA44", "TEGABA45", "TEGABA43",  "TEGABA42", "TEGABA40", "TEGABA39",  "TEGABA49", "TEGABA50", "TEGABA46", "TEGABA47", "TEGABA48", "TEGABA51",  "TEGABA38", "TEGABA36", "TEGABA37", "DIMEGLU1", "DIMEGLU3", "DIMEGLU2", "DIMEGLU7", "DIMEGLU6", "DIMEGLU5", "DIMEGLU4",  "DIMEGABA1", "DIMEGLU9", "DIMEGABA2", "DIMEGLU8", "TEGABA28", "TEGLU29", "TEGABA29", "TEGABA30", "TEGABA31", "TEGABA32", "TEGABA33", "TEGABA35", "TEGABA34", "TEGLU33", "TEGLU34", "TEGLU32", "TEGLU30", "TEGLU31", "TEGABA52",  "TEGABA53", "TEGABA58", "TEGABA55", "TEGABA54", "TEGABA57", "TEGABA56", "TEGABA59", "TEGABA60", "TEGABA61", "TEGABA62", "TEGABA63", "TEGABA65", "TEGABA64")) + RotatedAxis()
+```
+
+# Neurons Quality Control
+
+## Violin plots
+
+```{r fig.height=6, fig.width=12}
+VlnPlot(neurons.2, features = c("nFeature_RNA", "nCount_RNA", "percent.mt"), group.by = "animal", ncol= 3)
+```
+
+```{r fig.height=4, fig.width=14}
+cell.clusters <- table(neurons.2@meta.data$cluster_label)
+header <- c("cluster_label", "freq")
+cell.clusters <- as.data.frame(cell.clusters)
+colnames(cell.clusters) <- header
+
+x <-  ggplot(cell.clusters,aes(x = cluster_label, y = freq)) + geom_bar(stat = "identity", width=0.75, fill="steelblue") +
+      theme_classic() +
+      scale_y_continuous(expand = c(0, 0)) +
+      scale_x_discrete(limits=hClust.order) +
+      labs(title="Number of cells per cluster", x="", y = "Number of cells") +
+      geom_text(aes(label=freq), vjust=-0.5, size=2) +
+      theme(legend.position="none", axis.text.x = element_text(angle = 90))
+```
+
+```{r fig.height=20, fig.width=3}
+png(filename = "barplot_cells_per_cluster.png", width = 14, height = 4, units = "in", res = 400)
+x
+dev.off()
+```
+
+```{r fig.height=20, fig.width=3}
+pdf(file = "barplot_cells_per_cluster.pdf", width = 14, height = 4)
+x
+dev.off()
+```
+
+
+```{r fig.height=3.5, fig.width=10}
+data <- table(neurons.2@meta.data$animal, Idents(neurons.2))
+data_percentage <- apply(data, 2, function(x){x*100/sum(x,na.rm=T)})
+
+library(RColorBrewer)
+coul <- brewer.pal(5, "Pastel2") 
+ynames <- colnames(data_percentage)
+```
+
+```{r fig.height=3.5, fig.width=10}
+par(oma=c(1,0,0,0) + 0.5)
+barplot(data_percentage, 
+        col = coul, 
+        las = 2, 
+        font.axis = 1, 
+        cex.lab = 0.005,
+        legend.text = rownames(data_percentage),
+        args.legend = list(x = "right",inset=c(-0.01,0), xpd = TRUE))
+```
+
+```{r fig.height=3, fig.width=10}
+png(filename = "neurons_barplot_animal_Wlegend.png", width = 30, height = 7, units = "in", res = 400)
+par(oma=c(2,0,0,0) + 0.5)
+barplot(data_percentage, 
+        col = coul, 
+        las = 2, 
+        font.axis = 1, 
+        cex.lab = 0.005, 
+        legend.text = rownames(data_percentage),
+        args.legend = list(x = "right",inset=c(-0.01,0), xpd = TRUE))
+dev.off()
+```
+```{r fig.height=20, fig.width=3}
+pdf(file = "neurons_barplot_animal_Wlegend.pdf", width = 30, height = 7)
+par(oma=c(2,0,0,0) + 0.5)
+barplot(data_percentage, 
+        col = coul, 
+        las = 2, 
+        font.axis = 1, 
+        cex.lab = 0.005, 
+        legend.text = rownames(data_percentage),
+        args.legend = list(x = "right",inset=c(-0.01,0), xpd = TRUE))
+dev.off()
+```
+## All markers dotplot
+
+```{r fig.height=20, fig.width=30}
+neurons.markers <- readRDS("neurons.markers_order.rds")
+neurons.markers <- read.csv("all_markers_neurons_final_testroc.csv")
+neurons.markers <- read.csv("all_markers_neurons_final_testmast.csv")
+
+neurons.markers$diff <- NULL
+diff <- neurons.markers$pct.1 - neurons.markers$pct.2
+#FC <- abs(neurons.markers$avg_log2FC)
+neurons.markers <- cbind(neurons.markers, diff)
+
+neurons.markers %>% group_by(cluster) %>% top_n(5, diff) -> top5.diff
+neurons.markers %>% group_by(cluster) %>% top_n(5, diff) -> top5.logfc
+neurons.markers %>% group_by(cluster) %>% top_n(5, myAUC) -> top5.auc
+neurons.markers %>% group_by(cluster) %>% top_n(5, avg_log2FC) -> top5.logfc
+
+png("dotplot.png")
+DotPlot(neurons.2, features=unique(top5.diff$gene)) + RotatedAxis()
+dev.off()
+```
