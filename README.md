@@ -8,6 +8,6 @@ Code used for the analysis of single-cell RNA sequencing data from the telenceph
 
 **neurons.Rmd** is the Markdown that contains only neuronal cells from the entire scRNA-Seq. 
 
-**Final_compile_code_dev_2-25.R** contains all code used for analysis of the developmental data
+**final_clean_analysis6-16-22.R** contains all code used for analysis of the developmental data
 
 
