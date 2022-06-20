@@ -1,0 +1,1018 @@
+---
+title: "Three species integration (lizard, turtle, salamander)"
+author: Alonso Ortega-Gurrola
+date: | 
+      | Started on 05/18/2022
+      | Compiled: `r format(Sys.Date(), "%B %d, %Y")`
+output:
+  html_document:
+    df_print: paged
+    toc: yes
+    toc_float: no
+  github_document:
+    toc: yes
+  html_notebook:
+    df_print: paged
+    highlight: tango
+    number_sections: yes
+    theme: cosmo
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+editor_options:
+  chunk_output_type: inline
+always_allow_html: yes
+---
+
+
+# Loading libraries
+
+```{r warning=FALSE, message=FALSE}
+library(Seurat)
+library(corrplot)
+library(MatrixGenerics)
+library(ggplot2)
+library(dplyr)
+library(gplots)
+library(Hmisc)
+library(stringr)
+library(dendextend)
+library(dynamicTreeCut)
+library(tibble)
+```
+
+# Reading Seurat Object
+
+```{r fig.height=10, fig.width=10}
+int <- readRDS("R18_220603_CCA_integration_reptiles_Dims80_features_2000.RDS")
+DefaultAssay(int) <- "integrated"
+int <- FindClusters(int, resolution = 2.1, verbose = FALSE, algorithm = 3)
+
+# only run when changing resolution
+new.ids <- seq(1, length(levels(Idents(int))), by=1)
+names(new.ids) <- levels(Idents(int))
+int <- RenameIdents(int, new.ids)
+
+species_annot <- int@meta.data$species
+names(species_annot) <- rownames(int@meta.data)
+lizard.id <- names(species_annot[species_annot == "lizard"])
+turtle.id <- names(species_annot[species_annot == "turtle"])
+salama.id <- names(species_annot[species_annot == "salamander"])
+
+int[["SLM_identities_res2.1"]] <- Idents(int)
+
+lev <- levels(Idents(int))
+Idents(int) <- factor(Idents(int), levels=sample(lev))
+
+DimPlot(int, reduction = 'umap', label = T, label.size = 6, raster = FALSE, pt.size = 2) + NoLegend()
+```
+
+```{r fig.height=10, fig.width=10}
+png("DimPlot_R18_main.png", width = 10, height = 10, res = 400)
+DimPlot(int, reduction = 'umap', label = T, raster = FALSE, pt.size = 0.8, shuffle = T, label.size = 6) + NoLegend()
+dev.off()
+```
+
+
+```{r fig.height=10, fig.width=10}
+DefaultAssay(int) <- "SCT"
+
+FeaturePlot(int, features = c("SLC17A7", "SLC17A6", "GAD1", "GAD2"), raster = FALSE, pt.size = 0.5, label = T)
+```
+
+# Generating figures for paper
+
+```{r}
+png("DimPlot_R18_int_pleuro.png", width = 10, height = 10, units = "in", res = 400)
+DimPlot(int, cells.highlight = salama.id, label = F, raster = FALSE, sizes.highlight = 0.3, cols.highlight = "black", na.value = "darkgrey", pt.size = 0.8) + NoLegend()
+dev.off()
+
+pdf("DimPlot_R18_int_pleuro.pdf", width = 10, height = 10)
+DimPlot(int, cells.highlight = salama.id, label = F, raster = FALSE, sizes.highlight = 0.3, cols.highlight = "black", na.value = "darkgrey", pt.size = 0.8) + NoLegend()
+dev.off()
+```
+
+```{r fig.height=10, fig.width=10}
+png("DimPlot_R18_int_lizard.png", width = 10, height = 10, units = "in", res = 400)
+DimPlot(int, cells.highlight = lizard.id, label = F, raster = FALSE, sizes.highlight = 0.3, cols.highlight = "black", na.value = "darkgrey", pt.size = 0.8) + NoLegend()
+dev.off()
+
+pdf("DimPlot_R18_int_lizard.pdf", width = 10, height = 10)
+DimPlot(int, cells.highlight = lizard.id, label = F, raster = FALSE, sizes.highlight = 0.3, cols.highlight = "black", na.value = "darkgrey", pt.size = 0.8) + NoLegend()
+dev.off()
+```
+
+```{r fig.height=10, fig.width=10}
+png("DimPlot_R18_main.png", width = 10, height = 10, units = "in", res = 400)
+DimPlot(int, reduction = 'umap', label = T, raster = FALSE, pt.size = 0.5, shuffle = T, label.size = 6) + NoLegend()
+dev.off()
+
+pdf("DimPlot_R18_main.pdf", width = 10, height = 10)
+DimPlot(int, reduction = 'umap', label = T, raster = FALSE, pt.size = 0.5, shuffle = T, label.size = 6) + NoLegend()
+dev.off()
+```
+
+
+# Confusion Matrices
+
+```{r}
+int$integrated_clusters <- Idents(int)
+
+# cluster_labels and ClusterName are the metadata columns where the original cluster identities of each dataset are stored; replace with whatever relevant metadata column
+meta.data.table <- int@meta.data[,c("species", "cluster_label", "integrated_clusters")]
+
+liz.order <- c("MCtx_1", "MCtx_2", "MCtx_3", "MCtx_4", "MCtx_5", "MCtx_6", "MCtx_7", "MCtx_8", "MCtx_9", "MCtx_10",
+               "LCtx_1", "LCtx_2", 
+               "aDCtx", "pDCtx",  
+               "aDVR_1", "aDVR_2", "aDVR_3", "aDVR_4", "aDVR_5", "aDVR_6", "pDVR", "amDVR",
+               "DLA_1", "DLA_2",
+               "OT", "OT_3",  
+               "Chol_1",  "Chol_2", "Chol_3", 
+               "ITCs", 
+               "Str_PENK_1", "Str_PENK_2", "Str_PENK_3", "Str_TAC1", 
+               "Sept_1", "Sept_2", "Sept_4", "Sept_3", 
+               "MGE_INs_1", "MGE_INs_2", "MGE_INs_3", "MGE_INs_4", "MGE_INs_5", "MGE_INs_6", "MGE_INs_7", "MGE_INs_8", "MGE_INs_9", 
+               "CGE_INs_1", "CGE_INs_2", "CGE_INs_3")
+
+liz.order <- paste("L-", liz.order, sep = "")
+
+liz.order.glut <- c("MCtx_1", "MCtx_2", "MCtx_3", "MCtx_4", "MCtx_5", "MCtx_6", "MCtx_7", "MCtx_8", "MCtx_9", "MCtx_10",
+                    "LCtx_1", "LCtx_2", "aDCtx", "pDCtx", "aDVR_1", "aDVR_2", "aDVR_3", "aDVR_4", "aDVR_5", "aDVR_6", "pDVR", "amDVR", 
+                    "DLA_1", "DLA_2")
+#liz.order.glut <- paste("L-", liz.order.glut, sep = "")
+
+tur.order <- c("e29", "e30", "e31", "e32", "e33", "e34", "e35", "e36", "e37", "e38", "e07", "e08", "e13", "e14", "e15", "e16", "e24", "e28", "e27", "e26", "e09", "e10", "e11", "e12", "e17", "e01", "e02", "e19", "e18", "e20", "e21", "e22", "e23", "e25") # ONLY GLUT
+#tur.order <- paste("T-", tur.order, sep = "")
+
+hClust.order <- c("TEGLU1", "TEGLU2", "TEGLU4", "TEGLU5", "TEGLU3", "TEGLU6", "TEGLU7", "TEGLU14", 
+                  "TEGLU15", "TEGLU16", "TEGLU12", "TEGLU11", "TEGLU9", "TEGLU10", "TEGLU8", "TEGLU13", 
+                  "TEGLU20",  "TEGLU24", "TEGLU23", "TEGLU22", "TEGLU19", "TEGLU17", "TEGLU18", 
+                  "TEGLU21", "TEGLU31", "TEGLU30", "TEGLU25", "TEGLU36", 
+                  "TEGLU35", "TEGLU33", "TEGLU34", "TEGLU39", "TEGLU40", "TEGLU41") # Without GABA and MT cells
+#hClust.order <- paste("S-", hClust.order, sep = "")
+
+meta.data.table.lizard <- meta.data.table[meta.data.table$species=="lizard",]
+meta.data.table.turtle <- meta.data.table[meta.data.table$species=="turtle",]
+meta.data.table.salamander <- meta.data.table[meta.data.table$species=="salamander",]
+
+l_overlap <- table(meta.data.table.lizard$cluster_label, meta.data.table.lizard$integrated_clusters)
+t_overlap <- table(meta.data.table.turtle$cluster_label, meta.data.table.turtle$integrated_clusters)
+r_overlap <- rbind(l_overlap, t_overlap)
+s_overlap <- table(meta.data.table.salamander$cluster_label, meta.data.table.salamander$integrated_clusters)
+
+s_ratio <- s_overlap/rowSums(s_overlap)
+r_ratio <- r_overlap/rowSums(r_overlap)
+
+overlap.salrep <- s_ratio %*% t(r_ratio)
+overlap.salrep <- as.data.frame(overlap.salrep)
+
+overlap.salrep.order <- (match(hClust.order, rownames(overlap.salrep)))
+overlap.salrep <- overlap.salrep[overlap.salrep.order, ]
+
+# Integration salamander - lizard
+meta.data.table.lizard <- meta.data.table[meta.data.table$species=="lizard",]
+meta.data.table.salamander <- meta.data.table[meta.data.table$species=="salamander",]
+
+l_overlap <- table(meta.data.table.lizard$cluster_label, meta.data.table.lizard$integrated_clusters)
+s_overlap <- table(meta.data.table.salamander$cluster_label, meta.data.table.salamander$integrated_clusters)
+
+s_ratio <- s_overlap/rowSums(s_overlap)
+l_ratio <- l_overlap/rowSums(l_overlap)
+
+overlap.salliz <- s_ratio %*% t(l_ratio)
+overlap.salliz <- as.data.frame(overlap.salliz)
+
+overlap.salliz.order1 <- (match(hClust.order, rownames(overlap.salliz)))
+overlap.salliz.order2 <- (match(liz.order.glut, colnames(overlap.salliz)))
+
+overlap.salliz <- overlap.salliz[overlap.salliz.order1, overlap.salliz.order2]
+
+# Integration salamander - turtle
+meta.data.table.turtle <- meta.data.table[meta.data.table$species=="turtle",]
+meta.data.table.salamander <- meta.data.table[meta.data.table$species=="salamander",]
+
+t_overlap <- table(meta.data.table.turtle$cluster_label, meta.data.table.turtle$integrated_clusters)
+s_overlap <- table(meta.data.table.salamander$cluster_label, meta.data.table.salamander$integrated_clusters)
+
+s_ratio <- s_overlap/rowSums(s_overlap)
+t_ratio <- t_overlap/rowSums(t_overlap)
+
+overlap.saltur <- s_ratio %*% t(t_ratio)
+overlap.saltur <- as.data.frame(overlap.saltur)
+
+overlap.saltur.order1 <- (match(hClust.order, rownames(overlap.saltur)))
+overlap.saltur.order2 <- (match(tur.order, colnames(overlap.saltur)))
+
+overlap.saltur <- overlap.saltur[overlap.saltur.order1, overlap.saltur.order2]
+```
+
+## Reptile - Newt integration
+
+```{r fig.width=20}
+par(oma=c(2,1,1,2) + 0.5)
+heatmap.2(as.matrix(t(overlap.salrep)),trace="none", col=colorRampPalette(c("white","grey","black")), 
+          scale="none", Colv=F, Rowv=T, distfun=function(x) dist(x, method = 'euclidean'), cexRow = 1, 
+          cexCol = 2, hclustfun = function(x) hclust(x, method = "ward.D2"), dendrogram="row",
+          lmat=rbind(c(0, 3, 4), c(2, 1, 0)), lwid=c(1, 10, 2), keysize = 0.5,  
+          main = "Salamander - Reptile (Cortical Pallium, Dims = 80)")
+```
+
+## Lizard - Salamander
+
+```{r fig.width=20}
+par(oma=c(9,1,1,6) + 0.5)
+heatmap.2(as.matrix(t(overlap.salliz)), trace="none", col=colorRampPalette(c("white","grey","black")), 
+          scale="none", Colv=F, Rowv=F, distfun=function(x) dist(x, method = 'euclidean'), 
+          hclustfun = function(x) hclust(x, method = "ward.D2"), dendrogram="none", lmat=rbind(c(0, 3, 4), 
+          c(2, 1, 0)), lwid=c(1, 10, 2), 
+          keysize = 0.5,
+          density.info = c("none"),
+          cexRow = 3, cexCol = 3, 
+          cellnote= ifelse(round(as.matrix(t(overlap.salliz)),2)==0, NA, round(as.matrix(t(overlap.salliz)),2)), notecex=1.0, notecol="darkgrey",
+          main = "Salamander - Lizard (Cortical Pallium, Dims = 80, genes = 1000)")
+```
+
+## PNGs PDFs for paper
+
+```{r fig.width=20}
+png("Matrix_lizard-sal_V3.png", width = 20, height = 12, units = "in", res = 400)
+par(oma=c(3,1,2,2) + 0.75)
+heatmap.2(as.matrix(t(overlap.salliz)),trace="none", col=colorRampPalette(c("white","grey","black")), 
+          scale="none", Colv=F, Rowv=F, distfun=function(x) dist(x, method = 'euclidean'), 
+          hclustfun = function(x) hclust(x, method = "ward.D2"), dendrogram="none", lmat=rbind(c(0, 3, 4), 
+          c(2, 1, 0)), lwid=c(1, 10, 2), 
+          keysize = 0.5, 
+          density.info = c("none"),
+          cellnote= ifelse(round(as.matrix(t(overlap.salliz)),2)==0, NA, round(as.matrix(t(overlap.salliz)),2)), notecex=1.0, notecol="darkgrey",
+          cexRow = 2, cexCol = 2)
+dev.off()
+
+pdf("Matrix_lizard-sal_V3.pdf", width = 20, height = 12)
+par(oma=c(3,1,2,2) + 0.5)
+heatmap.2(as.matrix(t(overlap.salliz)),trace="none", col=colorRampPalette(c("white","grey","black")), 
+          scale="none", Colv=F, Rowv=F, distfun=function(x) dist(x, method = 'euclidean'), 
+          hclustfun = function(x) hclust(x, method = "ward.D2"), dendrogram="none", lmat=rbind(c(0, 3, 4), 
+          c(2, 1, 0)), lwid=c(1, 10, 2), keysize = 0.5, 
+          density.info = c("none"),
+          cellnote= ifelse(round(as.matrix(t(overlap.salliz)),2)==0, NA, round(as.matrix(t(overlap.salliz)),2)), notecex=1.0, notecol="darkgrey",
+          cexRow = 2, cexCol = 2)
+dev.off()
+```
+
+## Turtle - Salamander
+
+```{r fig.width=20}
+par(oma=c(9,1,1,6) + 0.5)
+heatmap.2(as.matrix(t(overlap.saltur)), trace="none", col=colorRampPalette(c("white","grey","black")), 
+          scale="none", Colv=F, Rowv=F, distfun=function(x) dist(x, method = 'euclidean'), 
+          hclustfun = function(x) hclust(x, method = "ward.D2"), dendrogram="none", lmat=rbind(c(0, 3, 4), 
+          c(2, 1, 0)), lwid=c(1, 10, 2), 
+          keysize = 0.5, 
+          density.info = c("none"),
+          cellnote= ifelse(round(as.matrix(t(overlap.saltur)),2)==0, NA, round(as.matrix(t(overlap.saltur)),2)), notecex=1.0, notecol="darkgrey",
+          cexRow = 2, cexCol = 2,
+          main = "Salamander - turtle (Cortical Pallium, Dims = 80)")
+```
+
+## PDFs and PNGs for paper
+
+```{r fig.width=20}
+png("Matrix_turtle-sal_V3.png", width = 20, height = 12, units = "in", res = 400)
+par(oma=c(3,1,2,2) + 0.75)
+heatmap.2(as.matrix(t(overlap.saltur)), trace="none", col=colorRampPalette(c("white","grey","black")), 
+          scale="none", Colv=F, Rowv=F, distfun=function(x) dist(x, method = 'euclidean'), 
+          hclustfun = function(x) hclust(x, method = "ward.D2"), dendrogram="none", lmat=rbind(c(0, 3, 4), 
+          c(2, 1, 0)), lwid=c(1, 10, 2), keysize = 0.5, cexRow = 2, cexCol = 2)
+dev.off()
+
+pdf("Matrix_turtle-sal_V3.pdf", width = 20, height = 12)
+par(oma=c(3,1,2,2) + 0.5)
+heatmap.2(as.matrix(t(overlap.saltur)), trace="none", col=colorRampPalette(c("white","grey","black")), 
+          scale="none", Colv=F, Rowv=F, distfun=function(x) dist(x, method = 'euclidean'), 
+          hclustfun = function(x) hclust(x, method = "ward.D2"), dendrogram="none", lmat=rbind(c(0, 3, 4), 
+          c(2, 1, 0)), lwid=c(1, 10, 2), keysize = 0.5, cexRow = 2, cexCol = 2)
+dev.off()
+```
+
+# SpeciesTree
+
+The dendrogram with leafs color-coded by species mixture was ran previously 
+```{r fig.height=8, fig.width=4}
+#rep.tree <- readRDS("Tree_3Sp_2000g80dim_220527_Spea_algo3_res2.1.rds")
+rep.tree <- readRDS("R18_tree_rotated_final.rds")
+
+DefaultAssay(int) <- "integrated"
+
+speciesTree.order.1 <- labels(rep.tree)
+
+levels(int) <- speciesTree.order.1
+int[["SpeciesTree_order"]] <- Idents(int)
+  
+DefaultAssay(int) <- "SCT"
+
+DotPlot(int, features = c("SLC17A7", "SLC17A6", "GAD1", "GAD2"), idents = speciesTree.order.1) + RotatedAxis()
+```
+
+
+# DotPlots for integrated VP/aDVR
+
+```{r fig.height=5, fig.width=12}
+DefaultAssay(int) <- "integrated"
+
+int[["final_dotplot_idents"]] <- Idents(int)
+id_by_cluster_label <- paste(int@meta.data$final_dotplot_idents, int@meta.data$cluster_label)
+
+# integrated 31
+id_by_cluster_label <- str_replace_all(id_by_cluster_label, "31 TEGLU24", "31 VP S")
+id_by_cluster_label <- str_replace_all(id_by_cluster_label, "31 TEGLU22", "31 VP S")
+id_by_cluster_label <- str_replace_all(id_by_cluster_label, "31 TEGLU23", "31 VP S")
+id_by_cluster_label <- str_replace_all(id_by_cluster_label, "31 aDVR_1", "31 aDVR L")
+id_by_cluster_label <- str_replace_all(id_by_cluster_label, "31 e02", "31 aDVR T")
+
+# INTEGRATED 3
+id_by_cluster_label <- str_replace_all(id_by_cluster_label, "3 e02", "3 aDVR T")
+id_by_cluster_label <- str_replace_all(id_by_cluster_label, "3 e18", "3 aDVR T")
+id_by_cluster_label <- str_replace_all(id_by_cluster_label, "3 e19", "3 aDVR T")
+id_by_cluster_label <- str_replace_all(id_by_cluster_label, "3 aDVR_1", "3 aDVR L")
+id_by_cluster_label <- str_replace_all(id_by_cluster_label, "3 aDVR_3", "3 aDVR L")
+id_by_cluster_label <- str_replace_all(id_by_cluster_label, "3 aDVR_4", "3 aDVR L")
+id_by_cluster_label <- str_replace_all(id_by_cluster_label, "3 aDVR_5", "3 aDVR L")
+id_by_cluster_label <- str_replace_all(id_by_cluster_label, "3 aDVR_6", "3 aDVR L")
+
+# INTEGRATED 13
+id_by_cluster_label <- str_replace_all(id_by_cluster_label, "13 TEGLU24", "13 VP S")
+id_by_cluster_label <- str_replace_all(id_by_cluster_label, "13 TEGLU22", "13 VP S")
+id_by_cluster_label <- str_replace_all(id_by_cluster_label, "13 TEGLU23", "13 VP S")
+id_by_cluster_label <- str_replace_all(id_by_cluster_label, "13 e02", "13 aDVR T")
+id_by_cluster_label <- str_replace_all(id_by_cluster_label, "13 e19", "13 aDVR T")
+id_by_cluster_label <- str_replace_all(id_by_cluster_label, "13 aDVR_1", "13 aDVR L")
+id_by_cluster_label <- str_replace_all(id_by_cluster_label, "13 aDVR_2", "13 aDVR L")
+id_by_cluster_label <- str_replace_all(id_by_cluster_label, "13 aDVR_3", "13 aDVR L")
+id_by_cluster_label <- str_replace_all(id_by_cluster_label, "13 aDVR_5", "13 aDVR L")
+id_by_cluster_label <- str_replace_all(id_by_cluster_label, "13 aDVR_6", "13 aDVR L")
+
+# INTEGRATED 17
+id_by_cluster_label <- str_replace_all(id_by_cluster_label, "17 TEGLU17", "17 POE S")
+id_by_cluster_label <- str_replace_all(id_by_cluster_label, "17 TEGLU18", "17 POE S")
+id_by_cluster_label <- str_replace_all(id_by_cluster_label, "17 TEGLU19", "17 POE S")
+id_by_cluster_label <- str_replace_all(id_by_cluster_label, "17 e02", "17 aDVR T")
+id_by_cluster_label <- str_replace_all(id_by_cluster_label, "17 e01", "17 aDVR T")
+id_by_cluster_label <- str_replace_all(id_by_cluster_label, "17 aDVR_2", "17 aDVR L")
+id_by_cluster_label <- str_replace_all(id_by_cluster_label, "17 aDVR_4", "17 aDVR L")
+id_by_cluster_label <- str_replace_all(id_by_cluster_label, "17 aDVR_6", "17 aDVR L")
+
+# INTEGRATED 30
+id_by_cluster_label <- str_replace_all(id_by_cluster_label, "30 TEGLU24", "30 VP S")
+id_by_cluster_label <- str_replace_all(id_by_cluster_label, "30 TEGLU22", "30 VP S")
+id_by_cluster_label <- str_replace_all(id_by_cluster_label, "30 TEGLU23", "30 VP S")
+id_by_cluster_label <- str_replace_all(id_by_cluster_label, "30 e02", "30 aDVR T")
+id_by_cluster_label <- str_replace_all(id_by_cluster_label, "30 e01", "30 aDVR T")
+id_by_cluster_label <- str_replace_all(id_by_cluster_label, "30 e19", "30 aDVR T")
+id_by_cluster_label <- str_replace_all(id_by_cluster_label, "30 aDVR_2", "30 aDVR L")
+id_by_cluster_label <- str_replace_all(id_by_cluster_label, "30 aDVR_3", "30 aDVR L")
+id_by_cluster_label <- str_replace_all(id_by_cluster_label, "30 aDVR_4", "30 aDVR L")
+
+# integrated 58
+id_by_cluster_label <- str_replace_all(id_by_cluster_label, "58 TEGLU17", "58 POE S")
+id_by_cluster_label <- str_replace_all(id_by_cluster_label, "58 TEGLU18", "58 POE S")
+
+
+table(id_by_cluster_label)["13 aDVR L"] # 237 cells
+table(id_by_cluster_label)["13 aDVR T"] # 109 cells
+table(id_by_cluster_label)["13 VP S"] # 532 cells
+
+table(id_by_cluster_label)["3 aDVR L"] # 377 cells
+table(id_by_cluster_label)["3 aDVR T"] # 525 cells
+
+table(id_by_cluster_label)["31 aDVR L"] # 27 cells
+table(id_by_cluster_label)["31 aDVR T"] # 29 cells
+table(id_by_cluster_label)["31 VP S"] # 511 cells
+
+table(id_by_cluster_label)["17 aDVR L"] # 390 cells
+table(id_by_cluster_label)["17 aDVR T"] #  66 cells
+table(id_by_cluster_label)["17 POE S"] # 328 cells
+
+table(id_by_cluster_label)["30 aDVR L"] # 189 cells
+table(id_by_cluster_label)["30 aDVR T"] # 307 cells
+table(id_by_cluster_label)["30 VP S"] # 38 cells
+
+table(id_by_cluster_label)["58 POE S"] # 192 cells
+
+int[["id_by_cluster_label"]] <- id_by_cluster_label 
+Idents(int) <- "id_by_cluster_label"
+
+order <- levels(int)
+nin <- c("31 VP S", "3 aDVR L", "3 aDVR T", "13 aDVR L", "13 aDVR T", "13 VP S", "58 POE S",
+         "17 aDVR L", "17 aDVR T", "17 POE S", "30 aDVR L", "30 aDVR T")
+order <- order[order %nin% nin]
+order <- c(order, nin)
+  
+levels(int) <- order
+DefaultAssay(int) <- "SCT"
+
+markers <- c("GRM3", "KCNH5", "FAM107A", "VGF")
+tfs.markers <- c("LMO3", "NR2F1", "NR2F2", "TBR1", "RORB", "SATB1", "MEIS2", "ZBTB18", "TSHZ2", "BCL11A")
+
+DotPlot(int, features = c(markers, tfs.markers, "SATB2"), assay = "SCT", idents = nin, scale = FALSE, scale.max = 100, scale.min = 0) + RotatedAxis()
+```
+
+## PDFs and PNGs for Dotplots
+
+```{r fig.height=1.5, fig.width=4}
+png(filename = "dotplot_comparative_R18_v1.png", res = 400, height = 3.5, width = 7, units = "in")
+par(oma=c(0,0,5,0) + 0.5)
+DotPlot(int, features = c(markers,tfs.markers), assay = "SCT", idents = nin, scale = FALSE, scale.max = 100, scale.min = 0) + theme(axis.text.x = element_text(angle = 90, hjust=1))
+dev.off()
+
+pdf(file = "dotplot_comparative_R18_v1.pdf", height = 3.5, width = 7)
+par(oma=c(0,0,5,0) + 0.5)
+DotPlot(int, features = c(markers,tfs.markers), assay = "SCT", idents = nin, scale = FALSE, scale.max = 100, scale.min = 0) + theme(axis.text.x = element_text(angle = 90, hjust=1))
+dev.off()
+```
+
+
+# Group by brain region, discriminating between reptiles and salamanders
+
+```{r fig.height=20, fig.width=20}
+DefaultAssay(int) <- "integrated"
+Idents(int) <- "cluster_label"
+
+id_by_cluster_label_merge_sp <- int@meta.data$cluster_label
+
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGLU1$", "S-MP")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGLU2$", "S-MP")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGLU4$", "S-MP")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGLU5$", "S-MP")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGLU3$", "S-MP")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGLU6$", "S-MP")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGLU7$", "S-MP") # SAL MP
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "e29$", "T-MC") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "e30$", "T-MC")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "e31$", "T-MC") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "e32$", "T-MC")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "e33$", "T-MC") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "e34$", "T-MC")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "e35$", "T-MC") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "e36$", "T-MC") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "e37$", "T-MC") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "e38$", "T-MC")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "MCtx_1$", "L-MC") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "MCtx_2$", "L-MC")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "MCtx_3$", "L-MC") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "MCtx_4$", "L-MC")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "MCtx_5$", "L-MC") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "MCtx_6$", "L-MC") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "MCtx_7$", "L-MC") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "MCtx_8$", "L-MC")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "MCtx_9$", "L-MC") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "MCtx_10$", "L-MC") 
+
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGLU14$", "S-LP")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGLU15$", "S-LP")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGLU16$", "S-LP")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGLU12$", "S-LP") # SAL LP
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "e09$", "T-LC")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "e10$", "T-LC")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "e11$", "T-LC")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "e12$", "T-LC") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "e17$", "T-LC") # turtle LC
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "LCtx_1$", "L-LC") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "LCtx_2$", "L-LC") # Lizard LC
+
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGLU11$", "S-DP")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGLU9$", "S-DP")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGLU10$", "S-DP")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGLU8$", "S-DP")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGLU13$", "S-DP")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGLU20$", "S-DP") # SAL DP
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "e07$", "T-DC")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "e08$", "T-DC")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "e13$", "T-DC")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "e14$", "T-DC")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "e15$", "T-DC")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "e16$", "T-DC")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "e24$", "T-DC")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "e26$", "T-DC")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "e27$", "T-DC") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "e28$", "T-DC") # turtle DC
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "^aDCtx$", "L-DC") # lizard DC
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "^pDCtx$", "L-DC") # lizard DC
+
+
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGLU24$", "S-VP")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGLU23$", "S-VP")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGLU22$", "S-VP")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGLU19$", "S-VP")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGLU17$", "S-VP")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGLU18$", "S-VP")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGLU21$", "S-VP") # SAL VP
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "e01$", "T-aDVR")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "e02$", "T-aDVR")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "e18$", "T-aDVR")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "e19$", "T-aDVR") #turtle DVR
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "aDVR_1$", "L-aDVR")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "aDVR_2$", "L-aDVR") # lizard DVR
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "aDVR_3$", "L-aDVR") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "aDVR_4$", "L-aDVR") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "aDVR_5$", "L-aDVR") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "aDVR_6$", "L-aDVR") 
+
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGLU25$", "S-pA")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGLU36$", "S-pA")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGLU35$", "S-pA") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGLU33$", "S-pA")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGLU34$", "S-pA") # sal pA
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "e20$", "T-pDVR")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "e21$", "T-pDVR") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "e22$", "T-pDVR")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "e23$", "T-pDVR") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "e25$", "T-pDVR") # turtle pDVR
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "^pDVR$", "L-DLA") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "DLA_1$", "L-DLA")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "DLA_2$", "L-DLA") # lizard DLA
+
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "e03$", "T-PT")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "e04$", "T-PT")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "e05$", "T-PT") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "e06$", "T-PT")
+
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "Str_PENK_1$", "L-STR")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "Str_PENK_2$", "L-STR")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "Str_PENK_3$", "L-STR") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "Str_TAC1$", "L-STR") # lizard striatum
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGABA52$", "S-STR")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGABA53$", "S-STR")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGABA58$", "S-STR") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGABA54$", "S-STR")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGABA55$", "S-STR") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGABA57$", "S-STR")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGABA56$", "S-STR") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGABA59$", "S-STR")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGABA61$", "S-STR") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGABA60$", "S-STR")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGABA62$", "S-STR") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGABA63$", "S-STR")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGABA64$", "S-STR") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGABA65$", "S-STR")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGABA34$", "S-STR") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGABA35$", "S-STR")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGABA33$", "S-STR") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGABA31$", "S-STR")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGABA32$", "S-STR") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGABA30$", "S-STR")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGABA29$", "S-STR") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGLU32$", "S-STR")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGABA28$", "S-STR") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGABA37$", "S-STR")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGABA36$", "S-STR") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGABA38$", "S-STR") # salamander striatum
+
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "Sept_1$", "L-SEP")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "Sept_2$", "L-SEP")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "Sept_4$", "L-SEP") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "Sept_3$", "L-SEP") # lizard septum
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "i02$", "T-SEP")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "i03$", "T-SEP") # turtle septum
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGABA51$", "S-SEP") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGABA48$", "S-SEP")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGABA47$", "S-SEP") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGABA46$", "S-SEP")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGABA50$", "S-SEP") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGABA49$", "S-SEP")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGABA39$", "S-SEP") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGABA40$", "S-SEP")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGABA42$", "S-SEP") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGABA43$", "S-SEP")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGABA45$", "S-SEP") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGABA44$", "S-SEP")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGLU41$", "S-SEP") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGABA41$", "S-SEP")
+
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "MGE_INs_1$", "L-INs")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "MGE_INs_2$", "L-INs")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "MGE_INs_3$", "L-INs") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "MGE_INs_4$", "L-INs") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "MGE_INs_5$", "L-INs")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "MGE_INs_6$", "L-INs") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "MGE_INs_7$", "L-INs") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "MGE_INs_8$", "L-INs")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "MGE_INs_9$", "L-INs") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "CGE_INs_1$", "L-INs")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "CGE_INs_2$", "L-INs") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "CGE_INs_3$", "L-INs") # lizard ins
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "i04$", "T-INs") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "i05$", "T-INs")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "i06$", "T-INs") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "i01$", "T-INs")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "i14$", "T-INs") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "i15$", "T-INs")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "i16$", "T-INs") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "i17$", "T-INs")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "i18$", "T-INs")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "i07$", "T-INs") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "i08$", "T-INs")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "i09$", "T-INs") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "i10$", "T-INs")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "i11$", "T-INs") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "i12$", "T-INs")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "i13$", "T-INs") # turtle ins
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGABA25$", "S-INs")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGABA26$", "S-INs")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGABA24$", "S-INs") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGABA23$", "S-INs") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGABA27$", "S-INs")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGABA22$", "S-INs") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGABA21$", "S-INs") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGABA20$", "S-INs")
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGABA18$", "S-INs") 
+id_by_cluster_label_merge_sp <- str_replace_all(id_by_cluster_label_merge_sp, "TEGABA19$", "S-INs") # sal ins
+
+int[["id_by_cluster_label_merge_sp"]] <- id_by_cluster_label_merge_sp
+Idents(int) <- "id_by_cluster_label_merge_sp"
+
+# MP #EA5F5B # rep #B2182B
+# LP #2DA736 # rep #1B7837
+# DP #458AC9 # rep #2166AC
+# VP #8666A9 # rep #762A83
+# pA #CCBB44 # rep #9E8F32
+
+# str #FF6699 # rep #AA4499 
+# sep #33CC99 # rep #009988 
+# ins #6773B5 # rep #004488
+
+mycols.5 <- c("#AA4499", "#004488", "#B2182B", "#2166AC", "#009988", "#762A83", "#9E8F32", 'darkgrey', "#1B7837", rep('darkgrey', 7), "#9E8F32", "#1B7837", "#2166AC", "#004488", "#B2182B", "#009988", "#762A83", "#6773B5", "#EA5F5B", "#458AC9", "#8666A9", "#CCBB44", "#FF6699", "#33CC99", 'darkgrey', "#2DA736", rep('darkgrey', 3))
+
+DimPlot(int, reduction = 'umap', pt.size = 1.5, cols = alpha(mycols.5, alpha = 1.3), label = F, shuffle = T)# + NoLegend()
+```
+
+# PDFs & PNGs for brain regions
+
+```{r fig.height=10, fig.width=10}
+Idents(int) <- int$id_by_cluster_label_merge_sp
+
+png("DimPlot_int_R18_shades_allregions.png", width = 10, height = 10, units = "in", res = 400)
+DimPlot(int, reduction = 'umap', pt.size =0.8, cols = alpha(mycols.5, alpha = 0.6), label = F, shuffle = T) + NoLegend()
+dev.off()
+
+pdf("DimPlot_int_R18_shades_allregions.pdf", width = 10, height = 10)
+DimPlot(int, reduction = 'umap', pt.size = 0.8, cols = alpha(mycols.5, alpha = 0.6), label = F, shuffle = T) + NoLegend()
+dev.off()
+
+Idents(int) <- int$SLM_identities_res2.1
+```
+
+
+# HeatMap annotation of integrated custer
+
+```{r fig.height=20, fig.width=7}
+#liz.clusters <- unique(grep("L-", int@meta.data$ident_track, value = TRUE))
+#cat(paste(shQuote(liz.clusters, type="cmd"), collapse=", "))
+
+Clusters <- unique(int@meta.data$ident_track)
+cluster.percent = NULL
+for(i in 1:length(Clusters)){
+  cluster.data = table(int@meta.data$ident_track == Clusters[i],Idents(int)) 
+  cluster.table = cluster.data["TRUE",]
+  percent = as.data.frame((cluster.table/sum(cluster.table)) * 100)
+  cluster.percent[i] <- percent
+}
+
+cluster.pc.data <- data.frame(t(sapply(cluster.percent,c)))
+rownames(cluster.pc.data) <- Clusters
+colnames(cluster.pc.data) <- levels(Idents(int))
+
+library(reshape)
+library(ggplot2)
+
+cluster.pc.data$ident_track <- rownames(cluster.pc.data)
+
+plot.data <- melt(cluster.pc.data, id=c("ident_track"))
+colnames(plot.data) <- c("ident_track","integrated_cluster","percent")
+
+plot.data %>% filter(percent > 0) %>% mutate(ident_track = factor(ident_track, levels=c(liz.order, "T-i13", "T-i12", "T-i11", "T-i10", "T-i09", "T-i08", "T-i07", "T-i18", "T-i17", "T-i16", "T-i15", "T-i14", "T-i01", "T-i06", "T-i05", "T-i04", "T-i03", "T-i02", "T-e06", "T-e05", "T-e04", "T-e03", "T-e25", "T-e23", "T-e22", "T-e21", "T-e20", "T-e19", "T-e18", "T-e02", "T-e01", "T-e08", "T-e07", "T-e16", "T-e15", "T-e14", "T-e13", "T-e26", "T-e27", "T-e28", "T-e24", "T-e17", "T-e12", "T-e11", "T-e10", "T-e09", "T-e38", "T-e37", "T-e36", "T-e35", "T-e34", "T-e33", "T-e32", "T-e31", "T-e30", "T-e29", "S-TEGABA1", "S-TEGABA3",  "S-TEGABA2",  "S-TEGABA4",  "S-TEGABA5", "S-TEGABA6", "S-TEGABA7",  "S-TEGABA9",  "S-TEGABA8", "S-TEGABA11", "S-TEGABA10", "S-TEGABA12", "S-TEGABA13", "S-TEGABA15", "S-TEGABA14", "S-TEGABA17", "S-TEGABA16", "S-TEGABA19", "S-TEGABA18", "S-TEGABA20", "S-TEGABA21", "S-TEGABA22", "S-TEGABA27", "S-TEGABA23", "S-TEGABA24", "S-TEGABA26", "S-TEGABA25", "S-TEGABA41", "S-TEGABA44", "S-TEGABA45", "S-TEGABA43", "S-TEGABA42", "S-TEGABA40", "S-TEGABA39", "S-TEGABA49", "S-TEGABA50", "S-TEGABA46", "S-TEGABA47", "S-TEGABA48", "S-TEGABA51", "S-TEGABA38", "S-TEGABA36", "S-TEGABA37", "S-TEGABA28", "S-TEGLU32", "S-TEGABA29", "S-TEGABA30", "S-TEGABA32", "S-TEGABA31", "S-TEGABA33", "S-TEGABA35", "S-TEGABA34", "S-TEGABA65", "S-TEGABA64", "S-TEGABA63", "S-TEGABA62", "S-TEGABA60", "S-TEGABA61", "S-TEGABA59", "S-TEGABA56", "S-TEGABA57", "S-TEGABA55", "S-TEGABA54", "S-TEGABA58", "S-TEGABA53", "S-TEGABA52", "S-TEGLU41", "S-TEGLU40", "S-TEGLU39", "S-TEGLU38", "S-TEGLU34", "S-TEGLU33",  "S-TEGLU35",  "S-TEGLU37",  "S-TEGLU36", "S-TEGLU30", "S-TEGLU31",  "S-TEGLU29",  "S-TEGLU28",  "S-TEGLU27",  "S-TEGLU26", "S-TEGLU21", "S-TEGLU18",  "S-TEGLU17", "S-TEGLU19", "S-TEGLU22", "S-TEGLU23", "S-TEGLU24", "S-TEGLU25",  "S-TEGLU20",  "S-TEGLU13",  "S-TEGLU8", "S-TEGLU10", "S-TEGLU9", "S-TEGLU11", "S-TEGLU12",  "S-TEGLU16",  "S-TEGLU15", "S-TEGLU14", "S-TEGLU7",  "S-TEGLU6", "S-TEGLU3", "S-TEGLU5", "S-TEGLU4", "S-TEGLU2", "S-TEGLU1"))) %>% ggplot(aes(x=integrated_cluster, y = ident_track, fill=percent)) + 
+    geom_tile() + scale_fill_gradient(low = "white", high = "black") + 
+  cowplot::theme_cowplot() + 
+  theme(axis.line  = element_blank()) + 
+  scale_x_discrete(expand = c(0, 0),position = 'top') +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size = 10)) + 
+  theme(axis.text.y = element_text(vjust = 0.5, hjust=1, size = 10)) +
+  ylab('')# + geom_text(aes(integrated_cluster, ident_track, label=round(percent,2)), colour = "darkgrey", check_overlap = TRUE, size = 1)
+```
+
+```{r fig.height=20, fig.width=7}
+png("Tree_heatmap_int_3Sp_R18.png", width = 10, height = 30, units = "in", res = 400)
+plot.data %>% filter(percent > 0)  %>% mutate(ident_track = factor(ident_track, levels=c(liz.order, "T-i13", "T-i12", "T-i11", "T-i10", "T-i09", "T-i08", "T-i07", "T-i18", "T-i17", "T-i16", "T-i15", "T-i14", "T-i01", "T-i06", "T-i05", "T-i04", "T-i03", "T-i02", "T-e06", "T-e05", "T-e04", "T-e03", "T-e25", "T-e23", "T-e22", "T-e21", "T-e20", "T-e19", "T-e18", "T-e02", "T-e01", "T-e08", "T-e07", "T-e16", "T-e15", "T-e14", "T-e13", "T-e26", "T-e27", "T-e28", "T-e24", "T-e17", "T-e12", "T-e11", "T-e10", "T-e09", "T-e38", "T-e37", "T-e36", "T-e35", "T-e34", "T-e33", "T-e32", "T-e31", "T-e30", "T-e29", "S-TEGABA1", "S-TEGABA3",  "S-TEGABA2",  "S-TEGABA4",  "S-TEGABA5", "S-TEGABA6", "S-TEGABA7",  "S-TEGABA9",  "S-TEGABA8", "S-TEGABA11", "S-TEGABA10", "S-TEGABA12", "S-TEGABA13", "S-TEGABA15", "S-TEGABA14", "S-TEGABA17", "S-TEGABA16", "S-TEGABA19", "S-TEGABA18", "S-TEGABA20", "S-TEGABA21", "S-TEGABA22", "S-TEGABA27", "S-TEGABA23", "S-TEGABA24", "S-TEGABA26", "S-TEGABA25", "S-TEGABA41", "S-TEGABA44", "S-TEGABA45", "S-TEGABA43", "S-TEGABA42", "S-TEGABA40", "S-TEGABA39", "S-TEGABA49", "S-TEGABA50", "S-TEGABA46", "S-TEGABA47", "S-TEGABA48", "S-TEGABA51", "S-TEGABA38", "S-TEGABA36", "S-TEGABA37", "S-TEGABA28", "S-TEGLU32", "S-TEGABA29", "S-TEGABA30", "S-TEGABA32", "S-TEGABA31", "S-TEGABA33", "S-TEGABA35", "S-TEGABA34", "S-TEGABA65", "S-TEGABA64", "S-TEGABA63", "S-TEGABA62", "S-TEGABA60", "S-TEGABA61", "S-TEGABA59", "S-TEGABA56", "S-TEGABA57", "S-TEGABA55", "S-TEGABA54", "S-TEGABA58", "S-TEGABA53", "S-TEGABA52", "S-TEGLU41", "S-TEGLU40", "S-TEGLU39", "S-TEGLU38", "S-TEGLU34", "S-TEGLU33",  "S-TEGLU35",  "S-TEGLU37",  "S-TEGLU36", "S-TEGLU25", "S-TEGLU30", "S-TEGLU31",  "S-TEGLU29",  "S-TEGLU28",  "S-TEGLU27",  "S-TEGLU26", "S-TEGLU21", "S-TEGLU18",  "S-TEGLU17", "S-TEGLU19", "S-TEGLU22", "S-TEGLU23", "S-TEGLU24", "S-TEGLU20",  "S-TEGLU13",  "S-TEGLU8", "S-TEGLU10", "S-TEGLU9", "S-TEGLU11", "S-TEGLU12",  "S-TEGLU16",  "S-TEGLU15", "S-TEGLU14", "S-TEGLU7",  "S-TEGLU6", "S-TEGLU3", "S-TEGLU5", "S-TEGLU4", "S-TEGLU2", "S-TEGLU1"))) %>% ggplot(aes(x=integrated_cluster, y = ident_track,fill=percent)) + 
+        geom_tile() + 
+        scale_fill_gradient(low = "white", high = "black") + 
+        cowplot::theme_cowplot() + theme(axis.line  = element_blank()) + 
+        theme(axis.text.x = element_text(angle = 90, vjust = 0.1, hjust=1, size = 10)) + 
+        scale_x_discrete(expand = c(0, 0),position = 'top') +
+        theme(axis.text.y = element_text(vjust = 0.5, hjust=1, size = 10)) +
+        ylab('') + theme(axis.ticks = element_blank()) 
+dev.off()
+
+pdf("Tree_heatmap_int_3Sp_R18.pdf", width = 10, height = 25)
+plot.data %>% filter(percent > 0) %>% mutate(ident_track = factor(ident_track, levels=c(liz.order, "T-i13", "T-i12", "T-i11", "T-i10", "T-i09", "T-i08", "T-i07", "T-i18", "T-i17", "T-i16", "T-i15", "T-i14", "T-i01", "T-i06", "T-i05", "T-i04", "T-i03", "T-i02", "T-e06", "T-e05", "T-e04", "T-e03", "T-e25", "T-e23", "T-e22", "T-e21", "T-e20", "T-e19", "T-e18", "T-e02", "T-e01", "T-e08", "T-e07", "T-e16", "T-e15", "T-e14", "T-e13", "T-e26", "T-e27", "T-e28", "T-e24", "T-e17", "T-e12", "T-e11", "T-e10", "T-e09", "T-e38", "T-e37", "T-e36", "T-e35", "T-e34", "T-e33", "T-e32", "T-e31", "T-e30", "T-e29", "S-TEGABA1", "S-TEGABA3",  "S-TEGABA2",  "S-TEGABA4",  "S-TEGABA5", "S-TEGABA6", "S-TEGABA7",  "S-TEGABA9",  "S-TEGABA8", "S-TEGABA11", "S-TEGABA10", "S-TEGABA12", "S-TEGABA13", "S-TEGABA15", "S-TEGABA14", "S-TEGABA17", "S-TEGABA16", "S-TEGABA19", "S-TEGABA18", "S-TEGABA20", "S-TEGABA21", "S-TEGABA22", "S-TEGABA27", "S-TEGABA23", "S-TEGABA24", "S-TEGABA26", "S-TEGABA25", "S-TEGABA41", "S-TEGABA44", "S-TEGABA45", "S-TEGABA43", "S-TEGABA42", "S-TEGABA40", "S-TEGABA39", "S-TEGABA49", "S-TEGABA50", "S-TEGABA46", "S-TEGABA47", "S-TEGABA48", "S-TEGABA51", "S-TEGABA38", "S-TEGABA36", "S-TEGABA37", "S-TEGABA28", "S-TEGLU32", "S-TEGABA29", "S-TEGABA30", "S-TEGABA32", "S-TEGABA31", "S-TEGABA33", "S-TEGABA35", "S-TEGABA34", "S-TEGABA65", "S-TEGABA64", "S-TEGABA63", "S-TEGABA62", "S-TEGABA60", "S-TEGABA61", "S-TEGABA59", "S-TEGABA56", "S-TEGABA57", "S-TEGABA55", "S-TEGABA54", "S-TEGABA58", "S-TEGABA53", "S-TEGABA52", "S-TEGLU41", "S-TEGLU40", "S-TEGLU39", "S-TEGLU38", "S-TEGLU34", "S-TEGLU33",  "S-TEGLU35",  "S-TEGLU37",  "S-TEGLU36", "S-TEGLU25", "S-TEGLU30", "S-TEGLU31",  "S-TEGLU29",  "S-TEGLU28",  "S-TEGLU27",  "S-TEGLU26", "S-TEGLU21", "S-TEGLU18",  "S-TEGLU17", "S-TEGLU19", "S-TEGLU22", "S-TEGLU23", "S-TEGLU24", "S-TEGLU20",  "S-TEGLU13",  "S-TEGLU8", "S-TEGLU10", "S-TEGLU9", "S-TEGLU11", "S-TEGLU12",  "S-TEGLU16",  "S-TEGLU15", "S-TEGLU14", "S-TEGLU7",  "S-TEGLU6", "S-TEGLU3", "S-TEGLU5", "S-TEGLU4", "S-TEGLU2", "S-TEGLU1"))) %>% ggplot(aes(x=integrated_cluster, y = ident_track, fill=percent)) + 
+    geom_tile() + scale_fill_gradient(low = "white", high = "black") + 
+  cowplot::theme_cowplot() + 
+  theme(axis.line  = element_blank()) + 
+  scale_x_discrete(expand = c(0, 0),position = 'top') +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size = 10)) + 
+  theme(axis.text.y = element_text(vjust = 0.5, hjust=1, size = 10))
+  ylab('') + theme(axis.ticks = element_blank())
+dev.off()
+```
+
+# HeatMap for r-DVR/n-VP
+
+```{r fig.height=5, fig.width=10}
+tokeep <- c("S-TEGLU22", "S-TEGLU23", "S-TEGLU24", "L-aDVR_1", "L-aDVR_2", "L-aDVR_3", "L-aDVR_4", "T-e01", "T-e02", "T-e18", "T-e19")
+
+plot.data.2 <- plot.data[plot.data$ident_track %in% tokeep,]
+
+plot.data.2 %>% ggplot(aes(x = integrated_cluster, y = ident_track, fill=percent)) + geom_tile() + 
+  scale_fill_gradient(low = "white", high = "black", limits=c(0, 100), breaks=seq(0,100,by=25)) + 
+  cowplot::theme_cowplot() + 
+  theme(axis.line  = element_blank()) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  scale_x_discrete(expand = c(0, 0),position = 'top') +
+  ylab('') +
+  theme(axis.ticks = element_blank())  
+```
+
+```{r}
+png("Tree_heatmap_int_3Sp_VP_R18.png", width = 12, height = 3, units = "in", res = 400)
+plot.data.2 %>% ggplot(aes(x = integrated_cluster, y = ident_track, fill=percent)) + geom_tile() + 
+  scale_fill_gradient(low = "white", high = "black", limits=c(0, 100), breaks=seq(0,100,by=25)) + 
+  cowplot::theme_cowplot() + 
+  theme(axis.line  = element_blank()) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ylab('') +
+  theme(axis.ticks = element_blank()) 
+dev.off()
+
+pdf("Tree_heatmap_int_3Sp_VP_R18.pdf", width = 12, height = 3)
+plot.data.2 %>% ggplot(aes(x = integrated_cluster, y = ident_track, fill=percent)) + geom_tile() + 
+  scale_fill_gradient(low = "white", high = "black", limits=c(0, 100), breaks=seq(0,100,by=25)) + 
+  cowplot::theme_cowplot() + 
+  theme(axis.line  = element_blank()) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ylab('') +
+  theme(axis.ticks = element_blank()) 
+dev.off()
+```
+
+# HeatMap for LP/LCtx
+
+```{r fig.height=4, fig.width=10}
+tokeep <- c("S-TEGLU22", "S-TEGLU23", "S-TEGLU24", "S-TEGLU17", "S-TEGLU18", "S-TEGLU19", "T-e01", "T-e02", "T-e18", "T-e19", "L-aDVR_1", "L-aDVR_2", "L-aDVR_3", "L-aDVR_4", "S-TEGLU12", "S-TEGLU14", "S-TEGLU15", "S-TEGLU16", "T-e09", "T-e10", "T-e11", "T-e12", "L-LCtx_1", "L-LCtx_2")
+tokeep <- rev(tokeep)
+
+plot.data.2 <- plot.data[plot.data$ident_track %in% tokeep,]
+
+plot.data.2 %>% mutate(ident_track = factor(ident_track, levels=tokeep)) %>% ggplot(aes(x = integrated_cluster, y = ident_track, fill=percent)) + geom_tile() + scale_fill_gradient(low = "white", high = "black") + 
+  cowplot::theme_cowplot() + 
+  theme(axis.line  = element_blank()) + 
+  scale_x_discrete(expand = c(0, 0),position = 'top') +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size = 10)) + 
+  theme(axis.text.y = element_text(vjust = 0.5, hjust=1, size = 10)) +
+  ylab('')
+```
+
+```{r}
+pdf("heatmap_final_R18_main_V2.pdf", width = 10, height = 4.5)
+plot.data.2 %>% mutate(ident_track = factor(ident_track, levels=tokeep)) %>% ggplot(aes(x = integrated_cluster, y = ident_track, fill=percent)) + geom_tile() + scale_fill_gradient(low = "white", high = "black") + 
+  cowplot::theme_cowplot() + 
+  theme(axis.line  = element_blank()) + 
+  scale_x_discrete(expand = c(0, 0),position = 'top') +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size = 10)) + 
+  theme(axis.text.y = element_text(vjust = 0.5, hjust=1, size = 10)) +
+  ylab('') 
+dev.off()
+
+png("heatmap_final_R18_main_V2.png", width = 12, height = 4.5, units = "in", res = 400)
+plot.data.2 %>% mutate(ident_track = factor(ident_track, levels=tokeep)) %>% ggplot(aes(x = integrated_cluster, y = ident_track, fill=percent)) + geom_tile() + scale_fill_gradient(low = "white", high = "black") + 
+  cowplot::theme_cowplot() + 
+  theme(axis.line  = element_blank()) + 
+  scale_x_discrete(expand = c(0, 0),position = 'top') +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size = 10)) + 
+  theme(axis.text.y = element_text(vjust = 0.5, hjust=1, size = 10)) +
+  ylab('') 
+dev.off()
+```
+
+# QC
+
+```{r fig.height=10, fig.width=10}
+DimPlot(int, reduction = 'umap', label = T, label.size = 3, pt.size = 0.75, group.by = "species", raster = F)
+```
+
+```{r fig.height=4, fig.width=8}
+VlnPlot(int, features = c("nFeature_RNA", "nCount_RNA"), group.by = "species", ncol= 2)
+```
+
+# High level annotation
+
+```{r fig.height=20, fig.width=20}
+DefaultAssay(int) <- "integrated"
+Idents(int) <- "cluster_label"
+
+id_by_cluster_label_high_annot <- int@meta.data$cluster_label
+
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGLU1$", "MEDIAL")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGLU2$", "MEDIAL")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGLU4$", "MEDIAL")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGLU5$", "MEDIAL")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGLU3$", "MEDIAL")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGLU6$", "MEDIAL")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGLU7$", "MEDIAL") # SAL MP
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "e29$", "MEDIAL") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "e30$", "MEDIAL")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "e31$", "MEDIAL") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "e32$", "MEDIAL")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "e33$", "MEDIAL") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "e34$", "MEDIAL")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "e35$", "MEDIAL") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "e36$", "MEDIAL") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "e37$", "MEDIAL") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "e38$", "MEDIAL")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "MCtx_1$", "MEDIAL") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "MCtx_2$", "MEDIAL")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "MCtx_3$", "MEDIAL") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "MCtx_4$", "MEDIAL")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "MCtx_5$", "MEDIAL") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "MCtx_6$", "MEDIAL") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "MCtx_7$", "MEDIAL") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "MCtx_8$", "MEDIAL")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "MCtx_9$", "MEDIAL") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "MCtx_10$", "MEDIAL") 
+
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGLU14$", "LATERAL")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGLU15$", "LATERAL")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGLU16$", "LATERAL")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGLU12$", "LATERAL") # SAL LP
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "e09$", "LATERAL")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "e10$", "LATERAL")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "e11$", "LATERAL")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "e12$", "LATERAL") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "e17$", "LATERAL") # turtle LC
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "LCtx_1$", "LATERAL") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "LCtx_2$", "LATERAL") # Lizard LC
+
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGLU11$", "DORSAL")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGLU9$", "DORSAL")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGLU10$", "DORSAL")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGLU8$", "DORSAL")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGLU13$", "DORSAL")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGLU20$", "DORSAL") # SAL DP
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "e07$", "DORSAL")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "e08$", "DORSAL")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "e13$", "DORSAL")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "e14$", "DORSAL")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "e15$", "DORSAL")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "e16$", "DORSAL")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "e24$", "DORSAL")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "e26$", "DORSAL")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "e27$", "DORSAL") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "e28$", "DORSAL") # turtle DC
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "^aDCtx$", "DORSAL") # lizard DC
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "^pDCtx$", "DORSAL") # lizard DC
+
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGLU24$", "VENTRAL")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGLU23$", "VENTRAL")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGLU22$", "VENTRAL")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGLU19$", "VENTRAL")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGLU17$", "VENTRAL")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGLU18$", "VENTRAL")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGLU21$", "VENTRAL") # SAL VP
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "e01$", "VENTRAL")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "e02$", "VENTRAL")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "e18$", "VENTRAL")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "e19$", "VENTRAL") #turtle DVR
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "aDVR_1$", "VENTRAL")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "aDVR_2$", "VENTRAL") # lizard DVR
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "aDVR_3$", "VENTRAL") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "aDVR_4$", "VENTRAL") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "aDVR_5$", "VENTRAL") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "aDVR_6$", "VENTRAL") 
+
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGLU25$", "AMYGDALA")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGLU36$", "AMYGDALA")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGLU35$", "AMYGDALA") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGLU33$", "AMYGDALA")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGLU34$", "AMYGDALA") # sal pA
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "e20$", "AMYGDALA")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "e21$", "AMYGDALA") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "e22$", "AMYGDALA")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "e23$", "AMYGDALA") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "e25$", "AMYGDALA") # turtle pDVR
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "^pDVR$", "AMYGDALA") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "DLA_1$", "AMYGDALA")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "DLA_2$", "AMYGDALA") # lizard DLA
+
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "e03$", "T-PT")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "e04$", "T-PT")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "e05$", "T-PT") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "e06$", "T-PT")
+
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "Str_PENK_1$", "STRIATUM")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "Str_PENK_2$", "STRIATUM")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "Str_PENK_3$", "STRIATUM") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "Str_TAC1$", "STRIATUM") # lizard striatum
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGABA52$", "STRIATUM")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGABA53$", "STRIATUM")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGABA58$", "STRIATUM") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGABA54$", "STRIATUM")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGABA55$", "STRIATUM") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGABA57$", "STRIATUM")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGABA56$", "STRIATUM") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGABA59$", "STRIATUM")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGABA61$", "STRIATUM") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGABA60$", "STRIATUM")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGABA62$", "STRIATUM") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGABA63$", "STRIATUM")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGABA64$", "STRIATUM") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGABA65$", "STRIATUM")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGABA34$", "STRIATUM") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGABA35$", "STRIATUM")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGABA33$", "STRIATUM") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGABA31$", "STRIATUM")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGABA32$", "STRIATUM") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGABA30$", "STRIATUM")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGABA29$", "STRIATUM") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGLU32$", "STRIATUM")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGABA28$", "STRIATUM") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGABA37$", "STRIATUM")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGABA36$", "STRIATUM") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGABA38$", "STRIATUM") # salamander striatum
+
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "Sept_1$", "SEPTUM")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "Sept_2$", "SEPTUM")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "Sept_4$", "SEPTUM") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "Sept_3$", "SEPTUM") # lizard septum
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "i02$", "SEPTUM")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "i03$", "SEPTUM") # turtle septum
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGABA51$", "SEPTUM") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGABA48$", "SEPTUM")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGABA47$", "SEPTUM") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGABA46$", "SEPTUM")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGABA50$", "SEPTUM") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGABA49$", "SEPTUM")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGABA39$", "SEPTUM") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGABA40$", "SEPTUM")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGABA42$", "SEPTUM") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGABA43$", "SEPTUM")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGABA45$", "SEPTUM") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGABA44$", "SEPTUM")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGLU41$", "SEPTUM") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGABA41$", "SEPTUM")
+
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "MGE_INs_1$", "INs")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "MGE_INs_2$", "INs")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "MGE_INs_3$", "INs") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "MGE_INs_4$", "INs") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "MGE_INs_5$", "INs")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "MGE_INs_6$", "INs") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "MGE_INs_7$", "INs") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "MGE_INs_8$", "INs")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "MGE_INs_9$", "INs") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "CGE_INs_1$", "INs")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "CGE_INs_2$", "INs") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "CGE_INs_3$", "INs") # lizard ins
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "i04$", "INs") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "i05$", "INs")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "i06$", "INs") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "i01$", "INs")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "i14$", "INs") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "i15$", "INs")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "i16$", "INs") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "i17$", "INs")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "i18$", "INs")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "i07$", "INs") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "i08$", "INs")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "i09$", "INs") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "i10$", "INs")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "i11$", "INs") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "i12$", "INs")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "i13$", "INs") # turtle ins
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGABA25$", "INs")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGABA26$", "INs")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGABA24$", "INs") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGABA23$", "INs") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGABA27$", "INs")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGABA22$", "INs") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGABA21$", "INs") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGABA20$", "INs")
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGABA18$", "INs") 
+id_by_cluster_label_high_annot <- str_replace_all(id_by_cluster_label_high_annot, "TEGABA19$", "INs") # sal ins
+
+int[["id_by_cluster_label_high_annot"]] <- id_by_cluster_label_high_annot
+#Idents(int) <- "id_by_cluster_label_high_annot"
+```
+
+```{r}
+Idents(int) <- int$SpeciesTree_order
+saveRDS(int, file = "Final_3sp_integration.rds")
+```
+

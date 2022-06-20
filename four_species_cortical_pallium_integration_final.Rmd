@@ -1,0 +1,1160 @@
+---
+title: "Four species cortical pallium integration (mouse, lizard, turtle, salamander)"
+author: Alonso Ortega-Gurrola
+date: | 
+      | Started on 21/02/2022
+      | Compiled: `r format(Sys.Date(), "%B %d, %Y")`
+output:
+  html_document:
+    df_print: paged
+    toc: yes
+    toc_float: no
+  github_document:
+    toc: yes
+  html_notebook:
+    df_print: paged
+    highlight: tango
+    number_sections: yes
+    theme: cosmo
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+editor_options:
+  chunk_output_type: inline
+always_allow_html: yes
+---
+
+# Load Libraries
+
+```{r warning=FALSE, message=FALSE}
+library(dendextend)
+library(dynamicTreeCut)
+library(tibble)
+library(Seurat)
+library(corrplot)
+library(MatrixGenerics)
+library(ggplot2)
+library(dplyr)
+library(gplots)
+library(Hmisc)
+library(stringr)
+library(reshape)
+library(ggplot2)
+```
+
+# Reading and preparing the object
+
+The resulting object from the integrated pipeline was loaded into the analysis script. We grabbed the species identities from each species in order to look at the integration by species. We clustered the object with **resolution = 1.2** and with **SLM algorithm**. These identities were stashed in a metadata column called **SLM_idents_res2.1**.
+
+```{r fig.height=10, fig.width=10}
+int <- readRDS("4Sp_v4_220523_CCA_Dims80_features_877.RDS")
+DefaultAssay(int) <- "integrated"
+
+species_annot <- int@meta.data$species
+names(species_annot) <- rownames(int@meta.data)
+species_annot <- sub("turtle", "reptile", species_annot)
+species_annot <- sub("lizard", "reptile", species_annot)
+rept.id <- names(species_annot[species_annot == "reptile"])
+
+turtle.id <- names(species_annot[species_annot == "turtle"])
+lizard.id <- names(species_annot[species_annot == "lizard"])
+mouse.id <- names(species_annot[species_annot == "mouse"])
+salama.id <- names(species_annot[species_annot == "salamander"])
+
+# For changing cluster's colors. Rename idents starting from 1 first. 
+# lev <- levels(Idents(int))
+# Idents(int) <- factor(Idents(int), levels=sample(lev))
+
+int <- FindClusters(int, algorithm = 3, res = 1.2)
+
+new.ids <- seq(1, length(levels(Idents(int))), by=1)
+names(new.ids) <- levels(Idents(int))
+int <- RenameIdents(int, new.ids)
+
+int[["SLM_idents_res1.2"]] <- Idents(int)
+```
+
+
+# General UMAP
+
+
+```{r fig.height=20, fig.width=20}
+# final plot for fig 4
+png("4Sp_v2_int_res1p2_SLMClustering_UMAP_main.png", width = 10, height = 10, res = 800)
+DimPlot(int, reduction = 'umap', label = T, raster = FALSE, pt.size = 1.8, shuffle = T, label.size = 4, group.by = "ident_track", repel = T) + NoLegend()
+dev.off()
+```
+
+```{r}
+mycols = c("#FFDD15","#809BFF","#FD80FE","#F6921E")
+pdf("CPall_int_res1_SLMClustering_UMAP_species3.pdf", width=8)
+DimPlot(int, label=F, shuffle = T, pt.size = 0.8, group.by = "species", cols=alpha(mycols,0.5))
+dev.off()
+```
+
+# By Species
+
+UMAPs highlighting the cells from each species in black. 
+
+```{r }
+turtle.id <- rownames(int@meta.data[int@meta.data$species=="turtle",])
+mouse.id <- rownames(int@meta.data[int@meta.data$species=="mouse",])
+salama.id <- rownames(int@meta.data[int@meta.data$species=="salamander",])
+lizard.id <- rownames(int@meta.data[int@meta.data$species=="lizard",])
+
+png("DimPlot_int_res1.2_SLM_turtle.png", width = 10, height = 10, units = 'in', res = 400)
+DimPlot(int, cells.highlight = turtle.id, label = F, raster = FALSE, sizes.highlight = 0.3, cols.highlight = "black", na.value = "darkgrey", pt.size = 0.8) + NoLegend()
+dev.off()
+
+png("DimPlot_int_res1.2_SLM_mouse.png", width = 10, height = 10, units = 'in', res = 400)
+DimPlot(int, cells.highlight = mouse.id, label = F, raster = FALSE, sizes.highlight = 0.3, cols.highlight = "black", na.value = "darkgrey", pt.size = 0.8) + NoLegend()
+dev.off()
+
+png("DimPlot_int_res1.2_SLM_lizard.png", width = 10, height = 10, units = 'in', res = 400)
+DimPlot(int, cells.highlight = lizard.id, label = F, raster = FALSE, sizes.highlight = 0.3, cols.highlight = "black", na.value = "darkgrey", pt.size = 0.8) + NoLegend()
+dev.off()
+
+png("DimPlot_int_res1.2_SLM_salamander.png", width = 10, height = 10, units = 'in', res = 400)
+DimPlot(int, cells.highlight = salama.id, label = F, raster = FALSE, sizes.highlight = 0.3, cols.highlight = "black", na.value = "darkgrey", pt.size = 0.8) + NoLegend()
+dev.off()
+```
+
+
+# Confusion Matrices
+
+```{r}
+int$integrated_clusters <- Idents(int)
+
+meta.data.table <- int@meta.data[,c("species", "cluster_label", "integrated_clusters")]
+hClust.order <- c("TEGLU1", "TEGLU2", "TEGLU4", "TEGLU5", "TEGLU3", "TEGLU6", 
+              "TEGLU7", "TEGLU11", "TEGLU9", "TEGLU10", "TEGLU8", "TEGLU13", "TEGLU20",
+              "TEGABA25", "TEGABA26", "TEGABA24", "TEGABA23", "TEGABA27", "TEGABA22", 
+              "TEGABA21", "TEGABA20", "TEGABA18", "TEGABA19")
+
+# Integration mouse - salamander
+meta.data.table.mouse <- meta.data.table[meta.data.table$species=="mouse",]
+meta.data.table.salamander <- meta.data.table[meta.data.table$species=="salamander",]
+
+m_overlap <- table(meta.data.table.mouse$cluster_label, meta.data.table.mouse$integrated_clusters)
+s_overlap <- table(meta.data.table.salamander$cluster_label, meta.data.table.salamander$integrated_clusters)
+
+s_ratio <- s_overlap/rowSums(s_overlap)
+m_ratio <- m_overlap/rowSums(m_overlap)
+
+overlap.salmou <- s_ratio %*% t(m_ratio)
+overlap.salmou <- as.data.frame(overlap.salmou)
+
+overlap.salmou.order <- (match(hClust.order, rownames(overlap.salmou)))
+overlap.salmou <- overlap.salmou[overlap.salmou.order, ]
+
+# Integration salamander - reptiles
+meta.data.table.lizard <- meta.data.table[meta.data.table$species=="lizard",]
+meta.data.table.turtle <- meta.data.table[meta.data.table$species=="turtle",]
+meta.data.table.salamander <- meta.data.table[meta.data.table$species=="salamander",]
+
+l_overlap <- table(meta.data.table.lizard$cluster_label, meta.data.table.lizard$integrated_clusters)
+t_overlap <- table(meta.data.table.turtle$cluster_label, meta.data.table.turtle$integrated_clusters)
+r_overlap <- rbind(l_overlap, t_overlap)
+s_overlap <- table(meta.data.table.salamander$cluster_label, meta.data.table.salamander$integrated_clusters)
+
+s_ratio <- s_overlap/rowSums(s_overlap)
+r_ratio <- r_overlap/rowSums(r_overlap)
+
+overlap.salrep <- s_ratio %*% t(r_ratio)
+overlap.salrep <- as.data.frame(overlap.salrep)
+
+overlap.salrep.order <- (match(hClust.order, rownames(overlap.salrep)))
+overlap.salrep <- overlap.salrep[overlap.salrep.order, ]
+
+# Integration salamander - lizard
+meta.data.table.lizard <- meta.data.table[meta.data.table$species=="lizard",]
+meta.data.table.salamander <- meta.data.table[meta.data.table$species=="salamander",]
+
+l_overlap <- table(meta.data.table.lizard$cluster_label, meta.data.table.lizard$integrated_clusters)
+s_overlap <- table(meta.data.table.salamander$cluster_label, meta.data.table.salamander$integrated_clusters)
+
+s_ratio <- s_overlap/rowSums(s_overlap)
+l_ratio <- l_overlap/rowSums(l_overlap)
+
+overlap.salliz <- s_ratio %*% t(l_ratio)
+overlap.salliz <- as.data.frame(overlap.salliz)
+
+overlap.salliz.order <- (match(hClust.order, rownames(overlap.salliz)))
+overlap.salliz <- overlap.salliz[overlap.salliz.order, ]
+
+# Integration salamander - turtle
+meta.data.table.turtle <- meta.data.table[meta.data.table$species=="turtle",]
+meta.data.table.salamander <- meta.data.table[meta.data.table$species=="salamander",]
+
+t_overlap <- table(meta.data.table.turtle$cluster_label, meta.data.table.turtle$integrated_clusters)
+s_overlap <- table(meta.data.table.salamander$cluster_label, meta.data.table.salamander$integrated_clusters)
+
+s_ratio <- s_overlap/rowSums(s_overlap)
+t_ratio <- t_overlap/rowSums(t_overlap)
+
+overlap.saltur <- s_ratio %*% t(t_ratio)
+overlap.saltur <- as.data.frame(overlap.saltur)
+
+overlap.saltur.order <- (match(hClust.order, rownames(overlap.saltur)))
+overlap.saltur <- overlap.saltur[overlap.saltur.order, ]
+```
+
+## Mouse - Salamander
+
+```{r fig.width=20}
+heatmap.2(as.matrix(t(overlap.salmou)),trace="none", col=colorRampPalette(c("white","grey","black")), 
+          scale="none", Colv=F, Rowv=T, distfun=function(x) dist(x, method = 'euclidean'), 
+          hclustfun = function(x) hclust(x, method = "ward.D2"), dendrogram="row", lmat=rbind(c(0, 3, 4), 
+          c(2, 1, 0)), lwid=c(1, 10, 2), keysize = 0.5, cexRow = 3, cexCol = 3, 
+          main = "Salamander - Mouse (Cortical Pallium, Dims = 80)")
+```
+
+
+## Reptile - Salamander
+
+```{r fig.width=20}
+heatmap.2(as.matrix(t(overlap.salrep)),trace="none", col=colorRampPalette(c("white","grey","black")), 
+          scale="none", Colv=F, Rowv=T, distfun=function(x) dist(x, method = 'euclidean'), 
+          hclustfun = function(x) hclust(x, method = "ward.D2"), dendrogram="row", lmat=rbind(c(0, 3, 4), 
+          c(2, 1, 0)), lwid=c(1, 10, 2), keysize = 0.5, cexRow = 3, cexCol = 5, 
+          main = "Salamander - Reptile (Cortical Pallium, Dims = 80)")
+```
+
+## Lizard - Salamander
+
+```{r fig.width=20}
+heatmap.2(as.matrix(t(overlap.salliz)),trace="none", col=colorRampPalette(c("white","grey","black")), 
+          scale="none", Colv=F, Rowv=T, distfun=function(x) dist(x, method = 'euclidean'), 
+          hclustfun = function(x) hclust(x, method = "ward.D2"), dendrogram="row", lmat=rbind(c(0, 3, 4), 
+          c(2, 1, 0)), lwid=c(1, 10, 2), keysize = 0.5, cexRow = 3, cexCol = 2, 
+          main = "Salamander - Lizard (Cortical Pallium, Dims = 80)")
+```
+
+## Turtle - Salamander
+
+```{r fig.width=20}
+heatmap.2(as.matrix(t(overlap.saltur)),trace="none", col=colorRampPalette(c("white","grey","black")), 
+          scale="none", Colv=F, Rowv=T, distfun=function(x) dist(x, method = 'euclidean'), 
+          hclustfun = function(x) hclust(x, method = "ward.D2"), dendrogram="row", lmat=rbind(c(0, 3, 4), 
+          c(2, 1, 0)), lwid=c(1, 10, 2), keysize = 0.5, cexRow = 3, cexCol = 2, 
+          main = "Salamander - Turtle (Cortical Pallium, Dims = 80)")
+```
+
+
+# Tree Species
+
+For generating the dendrogram, we used the **speciesTree** package. We modified for making Spearman correlations.
+
+```{r}
+dist.cos <- function(x) {
+    y <- t(x) %*% x
+    res <- 1 - y / (sqrt(diag(y)) %*% t(sqrt(diag(y))))
+    return(res)
+}
+
+
+cluster.matrix.expression.distances.S <- 
+function (counts, groups = NULL, useVariablegenes = F, variableGenes = NULL, 
+    dist = "cor", use.single.cell.comparisons = FALSE, use.scaled.data = FALSE, 
+    min.cluster.size = 1, max.n.cells = Inf, n.cells = 200) 
+{
+    require(abind)
+    require(sccore)
+    if (is.null(groups)) {
+        stop("no groups specified")
+    }
+    else {
+        groups <- as.factor(groups)
+    }
+    valid.dists <- c("JS", "cor","cos")
+    if (!dist %in% valid.dists) 
+        stop(paste("only the following distance types are supported:", 
+            paste(valid.dists, collapse = ", ")))
+    cl <- factor(groups[match(rownames(counts), names(groups))], 
+        levels = levels(groups))
+    tt <- table(cl)
+    empty <- tt < min.cluster.size
+    if (any(tt > max.n.cells)) {
+        scn <- unlist(tapply(names(cl), cl, function(x) sample(x, 
+            min(max.n.cells, length(x)))))
+        cl[!(names(cl) %in% scn)] <- NA
+        tt <- table(cl)
+    }
+    if (useVariablegenes) {
+        if (is.null(variableGenes)) {
+            stop("no variable genesets provided")
+        }
+        else {
+            counts <- counts[, colnames(counts) %in% variableGenes]
+        }
+    }
+    if (use.single.cell.comparisons) {
+        tcd <- parallel::mclapply(1:n.cells, function(i) {
+            scn <- unlist(tapply(names(cl), cl, function(x) sample(x, 
+                1)))
+            tc <- as.matrix(counts[na.omit(as.character(scn)), 
+                ])
+            rownames(tc) <- names(scn)[!is.na(scn)]
+            tc <- tc[match(levels(cl), rownames(tc)), ]
+            rownames(tc) <- levels(cl)
+            if (dist == "cos") {
+                if (use.scaled.data) {
+                  tcd <- dist.cos(t(tc))
+                }
+                else {
+                  tc <- log10(t(tc/pmax(1, rowSums(tc))) * 1000 + 
+                    1)
+                  tcd <- dist.cos(tc)
+                }
+            }
+            else {
+                if (use.scaled.data) {
+                  tcd <- 1 - cor(t(tc), method="s")
+                }
+                else {
+                  tc <- log10(t(tc/pmax(1, rowSums(tc))) * 1000 + 
+                    1)
+                  tcd <- 1 - cor(tc, method="s")
+                }
+            }
+            tcd[empty, ] <- tcd[, empty] <- NA
+            tcd
+        }, mc.cores = 10) %>% abind(along = 3) %>% apply(c(1, 
+            2), median, na.rm = T)
+    }
+    else {
+        tc <- sccore:::colSumByFactor(counts, cl)
+        tc <- tc[-1, , drop = F]
+        if (dist == "JS") {
+            tc <- t(tc/pmax(1, rowSums(tc)))
+            tcd <- pagoda2:::jsDist(tc)
+            dimnames(tcd) <- list(colnames(tc), colnames(tc))
+        }
+        else {
+            if (use.scaled.data) {
+                tc <- t(tc)
+            }
+            else {
+                tc <- log10(t(tc/pmax(1, rowSums(tc))) * 1000 + 
+                  1)
+            }
+            tcd <- 1 - cor(tc, method="s")
+        }
+    }
+    return(tcd)
+}
+
+
+cc2col <- function(cc, rate=15, base=0.001){
+     cc <- round((cc[2:4]/totalCells)/sum(cc[2:4]/totalCells), 2)
+     cv <- cc
+     cv <- dexp(cv, rate)
+     cv <- cv/rate * (1-base)
+     col <- adjustcolor(rgb(cv[1],cv[2],cv[3], 1), offset = c(0.5, 0.5, 0.5, 0.1))
+     return(col)
+}
+
+
+cbm <- function(d,fac) {
+    if(is.leaf(d)) {
+      #lc <- fac[leafContent[[as.numeric(attr(d,'label'))]]]
+      cc <- attr(d, "cc")
+      col <- cc2col(cc)
+      attr(d,"edgePar") <- c(attr(d,"edgePar"),list(col=col))
+      return(d);
+    } else {
+      oa <- attributes(d);
+      d <- lapply(d,cbm,fac=fac);
+      attributes(d) <- oa;
+      cc <- attr(d, "cc")
+      col <- cc2col(cc)
+      attr(d,"edgePar") <- c(attr(d,"edgePar"),list(col=col))
+      return(d);
+    }
+  }
+```
+
+Running the code for generating the Spearman correlated dendrogram. 
+
+```{r}
+expression.matrix <- GetAssayData(int, slot="data", assay="integrated")
+meta_clusters <- as.integer(Idents(int))
+names(meta_clusters) <- names(Idents(int))
+upperlevelinfo = NULL
+
+# modified from Alonso's original code:
+library(Matrix)
+d <- cluster.matrix.expression.distances.S(t(expression.matrix), groups=meta_clusters, dist="cor",  useVariablegenes=FALSE,  use.scaled.data=TRUE)
+
+dendr <- hclust(as.dist(d), method='ward.D2')
+dend <- as.dendrogram(dendr)
+
+dendr <- TransferDend(dend, renameCluster = FALSE, cls.groups = meta_clusters)
+cls.groups <- dendr$new.groups
+dend <- dendr$dendrogram
+leafcontent <- dendr$leafcontent
+stability.measurements = NULL
+dend <- AddTreeAttribute(dend, species_annot, leafcontent)
+dend <- dendSetWidthBysize(dend, scale = 8)
+colorpallete <- colorRampPalette(c("blue", "grey", "grey",  "grey", "red"))(101)
+upperLevelnodes = NULL
+
+fac <- as.factor(species_annot)
+totalCells <- table(fac)
+
+dend <- cbm(dend,species_annot)
+tree <- dend
+plot(tree)
+```
+
+
+```{r fig.height=5, fig.width=10}
+# commenting out the line that reads the dendrogram that was built
+#tree.four <- readRDS("Tree_4Sp_v3_220527_Spea_algo3_res1.2.rds")
+
+# ordering the levels based on the dendrogram cluster order
+
+speciesTree.order.1 <- labels(tree.four)
+
+levels(int) <- speciesTree.order.1
+
+plot(tree.four)
+```
+
+DotPlot of the integrated object showing the glutamatergic and GABAergic clusters, plotted in cluster order of the dendrogram. 
+
+```{r fig.height=7, fig.width=3}
+DefaultAssay(int) <- "SCT"
+
+DotPlot(int, features = c("SLC17A7", "SLC17A6", "GAD1", "GAD2"), idents = speciesTree.order.1) + RotatedAxis()
+```
+
+# Preparing metadata for the integrated object
+
+```{r}
+int[["yao_groups"]] <- int@meta.data$cell_type_accession_id
+
+meta_df <- int@meta.data
+```
+
+
+## Adding Cortical Region Metadata
+
+```{r}
+meta_df$cortical_region <- sub("CA1-ProS", "hippocampus", meta_df$cluster_label)
+meta_df$cortical_region <- sub("CA2-IG-FC", "hippocampus", meta_df$cortical_region)
+meta_df$cortical_region <- sub("CA3", "hippocampus", meta_df$cortical_region)
+meta_df$cortical_region <- sub("Car3", "neocortex", meta_df$cortical_region)
+meta_df$cortical_region <- sub("CT SUB", "subiculum-PPP", meta_df$cortical_region)
+meta_df$cortical_region <- sub("DG", "hippocampus", meta_df$cortical_region)
+meta_df$cortical_region <- sub("L2 IT ENTl", "entorhinal", meta_df$cortical_region)
+meta_df$cortical_region <- sub("L2 IT ENTm", "entorhinal", meta_df$cortical_region)
+meta_df$cortical_region <- sub("L2/3 IT CTX", "neocortex", meta_df$cortical_region)
+meta_df$cortical_region <- sub("L2/3 IT ENTl", "entorhinal", meta_df$cortical_region)
+meta_df$cortical_region <- sub("L2/3 IT PPP", "subiculum-PPP", meta_df$cortical_region)
+meta_df$cortical_region <- sub("L2/3 IT RHP", "neocortex", meta_df$cortical_region)
+# meta_df$cortical_region <- sub("L2/3 IT RHP", "mesocortex", meta_df$cortical_region)
+meta_df$cortical_region <- sub("L3 IT ENT", "entorhinal", meta_df$cortical_region)
+meta_df$cortical_region <- sub("L4 RSP-ACA", "neocortex", meta_df$cortical_region)
+# meta_df$cortical_region <- sub("L4 RSP-ACA", "mesocortex", meta_df$cortical_region)
+meta_df$cortical_region <- sub("L4/5 IT CTX", "neocortex", meta_df$cortical_region)
+meta_df$cortical_region <- sub("L5 IT CTX", "neocortex", meta_df$cortical_region)
+meta_df$cortical_region <- sub("L5 PPP", "subiculum-PPP", meta_df$cortical_region)
+meta_df$cortical_region <- sub("L5 PT CTX", "neocortex", meta_df$cortical_region)
+meta_df$cortical_region <- sub("L5/6 IT TPE-ENT", "entorhinal", meta_df$cortical_region)
+meta_df$cortical_region <- sub("L5/6 NP CTX", "neocortex", meta_df$cortical_region)
+meta_df$cortical_region <- sub("L6 CT CTX", "neocortex", meta_df$cortical_region)
+meta_df$cortical_region <- sub("L6 IT CTX", "neocortex", meta_df$cortical_region)
+meta_df$cortical_region <- sub("L6 IT ENTl", "entorhinal", meta_df$cortical_region)
+meta_df$cortical_region <- sub("L6b CTX", "neocortex", meta_df$cortical_region)
+meta_df$cortical_region <- sub("L6b/CT ENT", "entorhinal", meta_df$cortical_region)
+meta_df$cortical_region <- sub("NP PPP", "subiculum-PPP", meta_df$cortical_region)
+meta_df$cortical_region <- sub("NP SUB", "subiculum-PPP", meta_df$cortical_region)
+meta_df$cortical_region <- sub("SUB-ProS", "subiculum-PPP", meta_df$cortical_region)
+```
+
+## Adding Projection Type Metadata
+
+```{r}
+meta_df$projection_type <- sub("CA1-ProS", "ET", meta_df$cluster_label)
+meta_df$projection_type <- sub("CA2-IG-FC", "IT", meta_df$projection_type)
+meta_df$projection_type <- sub("CA3", "IT", meta_df$projection_type)
+meta_df$projection_type <- sub("Car3", "IT", meta_df$projection_type)
+meta_df$projection_type <- sub("CT SUB", "CT", meta_df$projection_type)
+meta_df$projection_type <- sub("DG", "IT", meta_df$projection_type)
+meta_df$projection_type <- sub("L2 IT ENTl", "IT", meta_df$projection_type)
+meta_df$projection_type <- sub("L2 IT ENTm", "IT", meta_df$projection_type)
+meta_df$projection_type <- sub("L2/3 IT CTX", "IT", meta_df$projection_type)
+meta_df$projection_type <- sub("L2/3 IT ENTl", "IT", meta_df$projection_type)
+meta_df$projection_type <- sub("L2/3 IT PPP", "IT", meta_df$projection_type)
+meta_df$projection_type <- sub("L2/3 IT RHP", "IT", meta_df$projection_type)
+meta_df$projection_type <- sub("L3 IT ENT", "IT", meta_df$projection_type)
+meta_df$projection_type <- sub("L4 RSP-ACA", "IT", meta_df$projection_type)
+meta_df$projection_type <- sub("L4/5 IT CTX", "IT", meta_df$projection_type)
+meta_df$projection_type <- sub("L5 IT CTX", "IT", meta_df$projection_type)
+meta_df$projection_type <- sub("L5 PPP", "ET", meta_df$projection_type)
+meta_df$projection_type <- sub("L5 PT CTX", "ET", meta_df$projection_type)
+meta_df$projection_type <- sub("L5/6 IT TPE-ENT", "IT", meta_df$projection_type)
+meta_df$projection_type <- sub("L5/6 NP CTX", "IT", meta_df$projection_type)
+meta_df$projection_type <- sub("L6 CT CTX", "CT", meta_df$projection_type)
+meta_df$projection_type <- sub("L6 IT CTX", "IT", meta_df$projection_type)
+meta_df$projection_type <- sub("L6 IT ENTl", "IT", meta_df$projection_type)
+meta_df$projection_type <- sub("L6b CTX", "NA", meta_df$projection_type)
+meta_df$projection_type <- sub("L6b/CT ENT", "CT", meta_df$projection_type)
+meta_df$projection_type <- sub("NP PPP", "IT", meta_df$projection_type)
+meta_df$projection_type <- sub("NP SUB", "IT", meta_df$projection_type)
+meta_df$projection_type <- sub("SUB-ProS", "ET", meta_df$projection_type)
+```
+
+## Adding brain region metadata
+
+```{r}
+meta_df$pallium_groups <- meta_df$cluster_label
+meta_df$pallium_groups[meta_df$pallium_groups %in% c("TEGLU1","TEGLU2","TEGLU3","TEGLU4","TEGLU5","TEGLU6","TEGLU7")] <- "s MP"
+meta_df$pallium_groups[meta_df$pallium_groups %in% c("TEGLU8","TEGLU9","TEGLU10","TEGLU11","TEGLU13","TEGLU20")] <- "s DP"
+meta_df$pallium_groups[meta_df$pallium_groups %in% c("e07","e08","e13","e14","e15","e16")] <- "t aDCtx"
+meta_df$pallium_groups[meta_df$pallium_groups %in% c("e24","e26","e27","e28")] <- "t pDCtx"
+meta_df$pallium_groups[meta_df$pallium_groups %in% c("aDCtx")] <- "l aDCtx"
+meta_df$pallium_groups[meta_df$pallium_groups %in% c("pDCtx")] <- "l pDCtx"
+```
+
+## Adding interneuron Metadata
+
+```{r}
+meta_df$yao_groups[meta_df$yao_groups %in% c(5:9)] <- "Lamp5 Lhx6"
+meta_df$yao_groups[meta_df$yao_groups %in% c(19, 20)] <- "Lamp5 Pax6"
+meta_df$yao_groups[meta_df$yao_groups %in% c(13:18)] <- "Lamp5 Egln3"
+meta_df$yao_groups[meta_df$yao_groups %in% c(10:12)] <- "Lamp5 Pdlim5"
+meta_df$yao_groups[meta_df$yao_groups %in% c(26:30)] <- "Ntng1 HPF"
+meta_df$yao_groups[meta_df$yao_groups %in% c(35:39)] <- "Sncg Jam2 Npy2r"
+meta_df$yao_groups[meta_df$yao_groups %in% c(25, 31:34)] <- "Sncg Krt73"
+meta_df$yao_groups[meta_df$yao_groups %in% c(21:24,40:41)] <- "Serpinf1"
+meta_df$yao_groups[meta_df$yao_groups %in% c(42:43,45:47)] <- "Vip Pcdh11x"
+meta_df$yao_groups[meta_df$yao_groups %in% c(52:53)] <- "Vip Lmo1"
+meta_df$yao_groups[meta_df$yao_groups %in% c(48:51)] <- "Vip Cp Rspo1"
+meta_df$yao_groups[meta_df$yao_groups %in% c(44)] <- "Vip Mybpc1"
+meta_df$yao_groups[meta_df$yao_groups %in% c(54:56)] <- "Vip Cbln4 HPF"
+meta_df$yao_groups[meta_df$yao_groups %in% c(57:62)] <- "Vip Igfbp6"
+meta_df$yao_groups[meta_df$yao_groups %in% c(63:65)] <- "Sst Chodl"
+meta_df$yao_groups[meta_df$yao_groups %in% c(77:78)] <- "Sst Lmo1 HPF"
+meta_df$yao_groups[meta_df$yao_groups %in% c(102:107)] <- "Sst Ctsc HPF"
+meta_df$yao_groups[meta_df$yao_groups %in% c(85:87)] <- "Sst Etv1"
+meta_df$yao_groups[meta_df$yao_groups %in% c(79:84)] <- "Sst Myh8"
+meta_df$yao_groups[meta_df$yao_groups %in% c(98)] <- "Sst Calb2"
+meta_df$yao_groups[meta_df$yao_groups %in% c(96:97)] <- "Sst Hpse"
+meta_df$yao_groups[meta_df$yao_groups %in% c(66:69)] <- "Sst Syndig1l"
+meta_df$yao_groups[meta_df$yao_groups %in% c(99:101)] <- "Sst Mme"
+meta_df$yao_groups[meta_df$yao_groups %in% c(88:95)] <- "Sst Nmbr"
+meta_df$yao_groups[meta_df$yao_groups %in% c(76)] <- "Sst Nts"
+meta_df$yao_groups[meta_df$yao_groups %in% c(70:75)] <- "Sst Crh"
+meta_df$yao_groups[meta_df$yao_groups %in% c(122:123)] <- "Pvalb Vipr2"
+meta_df$yao_groups[meta_df$yao_groups %in% c(108:110)] <- "Pvalb Th"
+meta_df$yao_groups[meta_df$yao_groups %in% c(111:121)] <- "Pvalb Lpl"
+
+# stash in Seurat metadata again
+int[["yao_groups"]] <- meta_df$yao_groups
+```
+
+```{r}
+meta_df$yao_supergroups <- meta_df$yao_groups
+meta_df$yao_supergroups[meta_df$yao_supergroups %in% c("Lamp5 Lhx6")] <- "Lamp5 Lhx6"
+meta_df$yao_supergroups[meta_df$yao_supergroups %in% c("Lamp5 Pax6")] <- "Lamp5 other"
+meta_df$yao_supergroups[meta_df$yao_supergroups %in% c("Lamp5 Egln3")] <- "Lamp5 other"
+meta_df$yao_supergroups[meta_df$yao_supergroups %in% c("Lamp5 Pdlim5")] <- "Lamp5 other"
+meta_df$yao_supergroups[meta_df$yao_supergroups %in% c("Ntng1 HPF")] <- "Sncg"
+meta_df$yao_supergroups[meta_df$yao_supergroups %in% c("Sncg Jam2 Npy2r")] <- "Sncg"
+meta_df$yao_supergroups[meta_df$yao_supergroups %in% c("Sncg Krt73")] <- "Sncg"
+meta_df$yao_supergroups[meta_df$yao_supergroups %in% c("Serpinf1")] <- "Vip Serpinf1"
+meta_df$yao_supergroups[meta_df$yao_supergroups %in% c("Vip Pcdh11x")] <- "Vip other"
+meta_df$yao_supergroups[meta_df$yao_supergroups %in% c("Vip Lmo1")] <- "Vip other"
+meta_df$yao_supergroups[meta_df$yao_supergroups %in% c("Vip Cp Rspo1")] <- "Vip other"
+meta_df$yao_supergroups[meta_df$yao_supergroups %in% c("Vip Mybpc1")] <- "Vip other"
+meta_df$yao_supergroups[meta_df$yao_supergroups %in% c("Vip Cbln4 HPF")] <- "Vip other"
+meta_df$yao_supergroups[meta_df$yao_supergroups %in% c("Vip Igfbp6")] <- "Vip other"
+meta_df$yao_supergroups[meta_df$yao_supergroups %in% c("Sst Chodl")] <- "Sst Chodl"
+meta_df$yao_supergroups[meta_df$yao_supergroups %in% c("Sst Lmo1 HPF")] <- "Sst other1"
+meta_df$yao_supergroups[meta_df$yao_supergroups %in% c("Sst Ctsc HPF")] <- "Sst other1"
+meta_df$yao_supergroups[meta_df$yao_supergroups %in% c("Sst Etv1")] <- "Sst other1"
+meta_df$yao_supergroups[meta_df$yao_supergroups %in% c("Sst Myh8")] <- "Sst other2"
+meta_df$yao_supergroups[meta_df$yao_supergroups %in% c("Sst Calb2")] <- "Sst other1"
+meta_df$yao_supergroups[meta_df$yao_supergroups %in% c("Sst Hpse")] <- "Sst other1"
+meta_df$yao_supergroups[meta_df$yao_supergroups %in% c("Sst Syndig1l")] <- "Sst other1"
+meta_df$yao_supergroups[meta_df$yao_supergroups %in% c("Sst Mme")] <- "Sst other1"
+meta_df$yao_supergroups[meta_df$yao_supergroups %in% c("Sst Nmbr")] <- "Sst other2"
+meta_df$yao_supergroups[meta_df$yao_supergroups %in% c("Sst Nts")] <- "Sst other2"
+meta_df$yao_supergroups[meta_df$yao_supergroups %in% c("Sst Crh")] <- "Sst other2"
+meta_df$yao_supergroups[meta_df$yao_supergroups %in% c("Pvalb Vipr2")] <- "Pvalb Vipr2"
+meta_df$yao_supergroups[meta_df$yao_supergroups %in% c("Pvalb Th")] <- "Pvalb other"
+meta_df$yao_supergroups[meta_df$yao_supergroups %in% c("Pvalb Lpl")] <- "Pvalb other"
+
+# stash in Seurat metadata again
+int[["yao_supergroups"]] <- meta_df$yao_supergroups
+```
+
+```{r}
+meta_df$cluster_supergroups <- meta_df$cluster_label
+meta_df$cluster_supergroups[meta_df$cluster_supergroups %in% c("i07","i12","i13")] <- "t Pvalb-like"
+meta_df$cluster_supergroups[meta_df$cluster_supergroups %in% c("i08","i09","i10")] <- "t Sst-like"
+meta_df$cluster_supergroups[meta_df$cluster_supergroups %in% c("i11")] <- "t Lamp5"
+# meta_df$cluster_supergroups[meta_df$cluster_supergroups %in% c("i14","i15","i16","i17","i18")] <- "t Sncg-Vip-like"
+meta_df$cluster_supergroups[meta_df$cluster_supergroups %in% c("i17","i18")] <- "t Lamp5 Ndnf"
+meta_df$cluster_supergroups[meta_df$cluster_supergroups %in% c("i14","i15","i16")] <- "t Sncg-Vip-like"
+
+meta_df$cluster_supergroups[meta_df$cluster_supergroups %in% c("MGE_INs_2")] <- "l Pvalb-like"
+meta_df$cluster_supergroups[meta_df$cluster_supergroups %in% c("MGE_INs_6")] <- "l Sst Chodl"
+meta_df$cluster_supergroups[meta_df$cluster_supergroups %in% c("MGE_INs_1", "MGE_INs_3", "MGE_INs_5", "MGE_INs_9")] <- "l Sst-like"
+meta_df$cluster_supergroups[meta_df$cluster_supergroups %in% c("MGE_INs_4")] <- "l Lamp5"
+meta_df$cluster_supergroups[meta_df$cluster_supergroups %in% c("CGE_INs_1","CGE_INs_2")] <- "l Sngc-Vip-like"
+
+
+meta_df$cluster_supergroups[meta_df$cluster_supergroups %in% c("TEGABA23")] <- "s Pvalb-like"
+meta_df$cluster_supergroups[meta_df$cluster_supergroups %in% c("TEGABA19")] <- "s Sst Chodl like"
+meta_df$cluster_supergroups[meta_df$cluster_supergroups %in% c("TEGABA24","TEGABA25","TEGABA26")] <- "s Sst-like"
+meta_df$cluster_supergroups[meta_df$cluster_supergroups %in% c("TEGABA27")] <- "s Lamp5"
+meta_df$cluster_supergroups[meta_df$cluster_supergroups %in% c("TEGABA18","TEGABA20","TEGABA21","TEGABA22")] <- "s Sngc-Vip-like"
+
+# stash in Seurat metadata again
+int[["cluster_supergroups"]] <- meta_df$cluster_supergroups
+
+# turtle i11: they were not PValb, but they were genuine lamp5
+# i17 and i18 are neurogliaform cells, they should be classified as lamp5 too together with mouse
+# they might exist also in lizard, but were poorly sampled
+# mouse: Gouwens shows that lamp5 split into two MET groups. lamp5+ ndnf+ are neurogliaform, and lamp5+ lhx6+ are in deep layers (fig.7C)
+```
+
+## Adding Metadata
+
+```{r}
+int <- AddMetaData(int, meta_df)
+```
+
+# Cluster annotation Heatmap
+
+For annotating the identities of the integrated clusters, heatmpas were generated in order to show the composition of each integrated cluster by each original cluster. 
+
+```{r fig.height=20, fig.width=7}
+library(ggplot2)
+library(reshape)
+
+Clusters <- unique(int@meta.data$cluster_label)
+cluster.percent = NULL
+for(i in 1:length(Clusters)){
+  cluster.data = table(int@meta.data$cluster_label == Clusters[i],Idents(int)) 
+  cluster.table = cluster.data["TRUE",]
+  percent = as.data.frame((cluster.table/sum(cluster.table)) * 100)
+  cluster.percent[i] <- percent
+}
+
+cluster.pc.data <- data.frame(t(sapply(cluster.percent,c)))
+rownames(cluster.pc.data) <- Clusters
+colnames(cluster.pc.data) <- levels(Idents(int))
+
+cluster.pc.data$cluster_label <- rownames(cluster.pc.data)
+ cluster.cor <- cor(t(cluster.pc.data[,1:(ncol(cluster.pc.data)-1)]))
+# cluster.pc.data <- cluster.pc.data[order(match(rownames(cluster.pc.data),rownames(cluster.cor))),]
+
+plot.data <- melt(cluster.pc.data, id=c("cluster_label"))
+colnames(plot.data) <- c("cluster_label","integrated_cluster","percent")
+
+hClust.order <- c("TEGLU1", "TEGLU2", "TEGLU4", "TEGLU5", "TEGLU3", "TEGLU6", 
+              "TEGLU7", "TEGLU11", "TEGLU9", "TEGLU10", "TEGLU8", "TEGLU13", "TEGLU20",
+              "TEGABA25", "TEGABA26", "TEGABA24", "TEGABA23", "TEGABA27", "TEGABA22", 
+              "TEGABA21", "TEGABA20", "TEGABA18", "TEGABA19")
+heat.order.sal <- rev(hClust.order)
+heat.order.mou <- c("Lamp5","Sncg", "Vip", "Pvalb","Sst","Sst Chodl", 
+                    "L6b/CT ENT", "L6b CTX", "L6 IT CTX", "L6 CT CTX", "L5/6 NP CTX", "L5 PT CTX", "L5 IT CTX", "L4/5 IT CTX", "L2/3 IT CTX", "Car3",
+                    "L4 RSP-ACA", "L2/3 IT RHP", "L6 IT ENTl", "L5/6 IT TPE-ENT", "L3 IT ENT", "L2/3 IT ENTl", "L2 IT ENTm", "L2 IT ENTl",
+                    "NP PPP", "L5 PPP", "L2/3 IT PPP", "SUB-ProS", "NP SUB", "CT SUB", "DG", "CA3", "CA2-IG-FC", "CA1-ProS")
+
+heat.order.rep <- c("i18", "i17", "i16", "i15", "i14", "i13", "i12", "i11", "i10", "i09", "i08", "i07", 
+                     "e28", "e27", "e26", "e24", "e16", "e15", "e14", "e13", "e08", "e07", "e38", "e37", "e36", "e35", "e34", "e33", "e32", "e31", "e30", "e29", "CGE_INs_1", "CGE_INs_3", "CGE_INs_2", "MGE_INs_7", "MGE_INs_6", "MGE_INs_8", "MGE_INs_9", "MGE_INs_4", "MGE_INs_3", "MGE_INs_1", "MGE_INs_2", "MGE_INs_5", "aDCtx", "pDCtx", "MCtx_10", "MCtx_9", "MCtx_8", "MCtx_7", "MCtx_6", "MCtx_5", "MCtx_4", "MCtx_3", "MCtx_2", "MCtx_1")
+
+heatmap.order <- c(heat.order.mou, heat.order.rep, heat.order.sal)
+
+# add %>% mutate(cluster_label = factor(cluster_label, levels=rownames(cluster.cor))) %>% to reorder clusters (rows)
+pdf("4Sp_v4_res1.2_SLMclustering_heatmap.pdf", width = 15, height=25)
+plot.data %>% filter(percent > 0) %>% mutate(cluster_label = factor(cluster_label, levels=heatmap.order)) %>%
+  ggplot(aes(x=integrated_cluster, y =  cluster_label, fill=percent)) + 
+  geom_tile() + scale_fill_gradient(low = "white", high = "black") + 
+  cowplot::theme_cowplot() + 
+  theme(axis.line  = element_blank()) + 
+  scale_x_discrete(expand = c(0, 0),position = 'top') +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1, size = 15)) + 
+  theme(axis.text.y = element_text(vjust = 0.5, hjust=1, size = 15))
+  ylab('') + theme(axis.ticks = element_blank())
+dev.off()
+```
+
+## Plot heatmap By cortical region
+
+```{r fig.height=1.5, fig.width=5}
+Clusters <- unique(int@meta.data$cortical_region)
+cluster.percent = NULL
+for(i in 1:length(Clusters)){
+  cluster.data = table(int@meta.data$cortical_region == Clusters[i],Idents(int)) 
+  cluster.table = cluster.data["TRUE",]
+  percent = as.data.frame((cluster.table/sum(cluster.table)) * 100)
+  cluster.percent[i] <- percent
+}
+
+cluster.pc.data <- data.frame(t(sapply(cluster.percent,c)))
+rownames(cluster.pc.data) <- Clusters
+colnames(cluster.pc.data) <- levels(Idents(int))
+
+cluster.pc.data$cortical_region <- rownames(cluster.pc.data)
+
+plot.data.2 <- melt(cluster.pc.data, id=c("cortical_region"))
+colnames(plot.data.2) <- c("cortical_region", "integrated_cluster", "percent")
+
+tokeep <- c("neocortex", "mesocortex", "entorhinal", "hippocampus","subiculum-PPP")
+
+plot.data.2 <- plot.data.2[plot.data.2$cortical_region %in% tokeep,]
+
+# pdf("CPall07_cortical_region.pdf", width=16, height=6)
+plot.data.2 %>% mutate(cortical_region = factor(cortical_region, c("neocortex","entorhinal","subiculum-PPP","hippocampus"))) %>% ggplot(aes(x = integrated_cluster, y = cortical_region, fill=percent)) + geom_tile() + 
+scale_fill_gradient(low = "white", high = "black", limits=c(0, max(plot.data.2$percent)), breaks=seq(0,max(plot.data.2$percent),by=10)) +
+  cowplot::theme_cowplot() + 
+  theme(axis.line  = element_blank()) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ylab('') +
+  theme(axis.ticks = element_blank()) 
+# dev.off()
+```
+
+
+## reorganize by cortical region
+
+We got rid of the order of the dendrogram and reorganized the data in order to plot the integrated clusters depending on the cortical region to which they belong.
+
+```{r fig.width=10}
+# depends on chunk above
+cluster.pc.data2 <- cluster.pc.data[rownames(cluster.pc.data) %in% c("neocortex","entorhinal","subiculum-PPP","hippocampus"),1:(ncol(cluster.pc.data)-1)]
+gaba.clusters <- c('3','50','13','4','44','11','8','40','34','17','49')
+cluster.pc.data2 <- cluster.pc.data2[,!colnames(cluster.pc.data2) %in% gaba.clusters]
+# cluster.dist <- as.dist(1-cor(t(cluster.pc.data2)))
+cluster.dist <- dist(t(cluster.pc.data2))
+cluster.hclust <- hclust(cluster.dist, method = "ward.D2")
+
+new.order <- labels(cluster.hclust)
+new.order <- c('26','31','2','43','46','36','14',
+               '25','20','28','32','38','39','42','12','45','1',
+               '21','22','29','10','9','37','35','16','6','51','7','33', 
+               '5','18','15','24','27','30','23','19','41','47','48','52',
+               labels(cluster.hclust)[3:(length(labels(cluster.hclust))-5)])
+cluster.pc.data2 <- as.data.frame(cluster.pc.data2[,order(match(colnames(cluster.pc.data2), new.order))])
+cluster.pc.data2$cortical_region <- rownames(cluster.pc.data2)
+
+plot.data.2 <- melt(cluster.pc.data2, id=c("cortical_region"))
+colnames(plot.data.2) <- c("cortical_region", "integrated_cluster", "percent")
+ 
+tokeep <- c("neocortex", "mesocortex", "entorhinal", "hippocampus","subiculum-PPP")
+ 
+plot.data.2 <- plot.data.2[plot.data.2$cortical_region %in% tokeep,]
+
+pdf("4Sp_v2_cortical_region_new_order.pdf", width=16, height=6)
+plot.data.2 %>% mutate(cortical_region = factor(cortical_region, c("neocortex","entorhinal","subiculum-PPP","hippocampus"))) %>% ggplot(aes(x = integrated_cluster, y = cortical_region, fill=percent)) + geom_tile() + 
+   scale_fill_gradient(low = "white", high = "black", limits=c(0, max(plot.data.2$percent)), breaks=seq(0,max(plot.data.2$percent),by=10)) + 
+   cowplot::theme_cowplot() + 
+   theme(axis.line  = element_blank()) +
+   theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+   ylab('') +
+   theme(axis.ticks = element_blank()) 
+dev.off()
+
+```
+
+## Plot heatmap projection type
+
+```{r fig.height=1.5, fig.width=5}
+Clusters <- unique(int@meta.data$projection_type)
+cluster.percent = NULL
+for(i in 1:length(Clusters)){
+  cluster.data = table(int@meta.data$projection_type == Clusters[i],Idents(int)) 
+  cluster.table = cluster.data["TRUE",]
+  percent = as.data.frame((cluster.table/sum(cluster.table)) * 100)
+  cluster.percent[i] <- percent
+}
+
+cluster.pc.data <- data.frame(t(sapply(cluster.percent,c)))
+rownames(cluster.pc.data) <- Clusters
+colnames(cluster.pc.data) <- levels(Idents(int))
+
+cluster.pc.data$projection_type <- rownames(cluster.pc.data)
+
+plot.data.3 <- melt(cluster.pc.data, id=c("projection_type"))
+colnames(plot.data.3) <- c("projection_type", "integrated_cluster", "percent")
+
+tokeep <- c("IT", "ET", "CT")
+
+plot.data.3 <- plot.data.3[plot.data.3$projection_type %in% tokeep,]
+
+#pdf("4Sp_projection_data_v2.pdf", width=16, height=5)
+plot.data.3 %>% mutate(projection_type = factor(projection_type, c("ET","CT","IT"))) %>% ggplot(aes(x = integrated_cluster, y = projection_type, fill=percent)) + geom_tile() + 
+  scale_fill_gradient(low = "white", high = "black", limits=c(0, max(plot.data.3$percent)), breaks=seq(0,max(plot.data.3$percent),by=10)) + 
+  cowplot::theme_cowplot() + 
+  theme(axis.line  = element_blank()) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ylab('') +
+  theme(axis.ticks = element_blank())  
+#dev.off()
+```
+
+
+## Heatmap by pallial region ("pallium groups")
+
+We grabbed specific clusters from the original Seurat objects: DP from salamanders, aDCtx and pDCtx of lizard, and DCtx from turtle. 
+
+```{r}
+# depends on chunk above
+Clusters <- unique(int@meta.data$pallium_groups)
+cluster.percent = NULL
+for(i in 1:length(Clusters)){
+  cluster.data = table(int@meta.data$pallium_groups == Clusters[i],Idents(int)) 
+  cluster.table = cluster.data["TRUE",]
+  percent = as.data.frame((cluster.table/sum(cluster.table)) * 100)
+  cluster.percent[i] <- percent
+}
+
+cluster.pc.data <- data.frame(t(sapply(cluster.percent,c)))
+rownames(cluster.pc.data) <- Clusters
+colnames(cluster.pc.data) <- levels(Idents(int))
+
+cluster.pc.data$pallium_groups <- rownames(cluster.pc.data)
+
+plot.data.2 <- melt(cluster.pc.data, id=c("pallium_groups"))
+colnames(plot.data.2) <- c("pallium_groups", "integrated_cluster", "percent")
+
+new.order <- c('26','31','2','43','46','36','14',
+               '25','20','28','32','38','39','42','12','45','1',
+               '21','22','29','10','9','37','35','16','6','51','7','33', 
+               '5','18','15','24','27','30','23','19','41','47','48','52',
+               labels(cluster.hclust)[3:(length(labels(cluster.hclust))-5)])
+cluster.pc.data <- as.data.frame(cluster.pc.data[,order(match(colnames(cluster.pc.data), new.order))])
+cluster.pc.data$pallium_groups <- rownames(cluster.pc.data)
+
+plot.data.2 <- melt(cluster.pc.data, id=c("pallium_groups"))
+colnames(plot.data.2) <- c("pallium_groups", "integrated_cluster", "percent")
+ 
+
+#tokeep <- c("s DP",  "t aDCtx", "t pDCtx", "l aDCtx", "l pDCtx")
+tokeep <- c("s DP")
+
+plot.data.2 <- plot.data.2[plot.data.2$pallium_groups %in% tokeep,]
+
+pdf("4Sp_v2_pallium_groups_salam.pdf", width=16, height=3)
+plot.data.2 %>% mutate(pallium_groups = factor(pallium_groups, c("s DP"))) %>% ggplot(aes(x = integrated_cluster, y = pallium_groups, fill=percent)) + geom_tile() + 
+  scale_fill_gradient(low = "white", high = "black", limits=c(0, max(plot.data.2$percent)), breaks=seq(0,max(plot.data.2$percent),by=10)) + 
+  cowplot::theme_cowplot() + 
+  theme(axis.line  = element_blank()) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ylab('') +
+  theme(axis.ticks = element_blank()) 
+dev.off()
+```
+
+```{r}
+cluster.pc.data3 <- data.frame(t(sapply(cluster.percent,c)))
+rownames(cluster.pc.data3) <- Clusters
+colnames(cluster.pc.data3) <- levels(Idents(int))
+
+cluster.pc.data3 <- as.data.frame(cluster.pc.data3[,order(match(colnames(cluster.pc.data3), new.order))])
+cluster.pc.data3$pallium_groups <- rownames(cluster.pc.data3)
+
+plot.data.4 <- melt(cluster.pc.data3, id=c("pallium_groups"))
+colnames(plot.data.4) <- c("pallium_groups", "integrated_cluster", "percent")
+
+new.order <- c('26','31','2','43','46','36','14',
+               '25','20','28','32','38','39','42','12','45','1',
+               '21','22','29','10','9','37','35','16','6','51','7','33', 
+               '5','18','15','24','27','30','23','19','41','47','48','52',
+               labels(cluster.hclust)[3:(length(labels(cluster.hclust))-5)])
+cluster.pc.data3 <- as.data.frame(cluster.pc.data3[,order(match(colnames(cluster.pc.data3), new.order))])
+cluster.pc.data3$pallium_groups <- rownames(cluster.pc.data)
+
+
+# tokeep <- c("s DP",  "t aDCtx","t pDCtx", "l DCtx")
+tokeep <- c("t aDCtx","t pDCtx")
+
+plot.data.4 <- plot.data.4[plot.data.4$pallium_groups %in% tokeep,]
+
+pdf("4Sp_v2_pallium_groups_turtle_new_order.pdf", width=16, height=3)
+plot.data.4 %>% mutate(pallium_groups = factor(pallium_groups, c("t pDCtx","t aDCtx"))) %>% ggplot(aes(x = integrated_cluster, y = pallium_groups, fill=percent)) + geom_tile() + 
+  scale_fill_gradient(low = "white", high = "black", limits=c(0, max(plot.data.4$percent)), breaks=seq(0,max(plot.data.4$percent),by=10)) + 
+  cowplot::theme_cowplot() + 
+  theme(axis.line  = element_blank()) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ylab('') +
+  theme(axis.ticks = element_blank()) 
+dev.off()
+```
+```{r}
+cluster.pc.data4 <- data.frame(t(sapply(cluster.percent,c)))
+rownames(cluster.pc.data4) <- Clusters
+colnames(cluster.pc.data4) <- levels(Idents(int))
+
+cluster.pc.data4 <- as.data.frame(cluster.pc.data4[,order(match(colnames(cluster.pc.data4), new.order))])
+cluster.pc.data4$pallium_groups <- rownames(cluster.pc.data4)
+
+plot.data.5 <- melt(cluster.pc.data4, id=c("pallium_groups"))
+colnames(plot.data.5) <- c("pallium_groups", "integrated_cluster", "percent")
+
+new.order <- c('26','31','2','43','46','36','14',
+               '25','20','28','32','38','39','42','12','45','1',
+               '21','22','29','10','9','37','35','16','6','51','7','33', 
+               '5','18','15','24','27','30','23','19','41','47','48','52',
+               labels(cluster.hclust)[3:(length(labels(cluster.hclust))-5)])
+cluster.pc.data4 <- as.data.frame(cluster.pc.data4[,order(match(colnames(cluster.pc.data4), new.order))])
+cluster.pc.data4$pallium_groups <- rownames(cluster.pc.data4)
+
+
+# tokeep <- c("s DP",  "t aDCtx","t pDCtx", "l DCtx")
+tokeep <- c("l aDCtx", "l pDCtx")
+
+plot.data.5 <- plot.data.5[plot.data.5$pallium_groups %in% tokeep,]
+
+pdf("4Sp_v2_pallium_groups_turtle_new_order.pdf", width=16, height=3)
+plot.data.5 %>% mutate(pallium_groups = factor(pallium_groups, c("l pDCtx","l aDCtx"))) %>% ggplot(aes(x = integrated_cluster, y = pallium_groups, fill=percent)) + geom_tile() + 
+  scale_fill_gradient(low = "white", high = "black", limits=c(0, max(plot.data.5$percent)), breaks=seq(0,max(plot.data.5$percent),by=10)) + 
+  cowplot::theme_cowplot() + 
+  theme(axis.line  = element_blank()) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ylab('') +
+  theme(axis.ticks = element_blank()) 
+dev.off()
+```
+
+## Interneurons
+
+Heatmap annotation of interneurons.
+
+```{r fig.height=3, fig.width=5}
+Clusters <- unique(int@meta.data$yao_groups)
+tokeep <- c("Lamp5 Lhx6","Lamp5 Pax6", "Lamp5 Egln3","Lamp5 Pdlim5", "Ntng1 HPF","Sncg Jam2 Npy2r", "Sncg Krt73", "Serpinf1", "Vip Pcdh11x", "Vip Lmo1", "Vip Cp Rspo1", "Vip Mybpc1", "Vip Cbln4 HPF", "Vip Igfbp6", "Sst Chodl", "Sst Lmo1 HPF", "Sst Ctsc HPF", "Sst Etv1", "Sst Myh8", "Sst Calb2", "Sst Hpse", "Sst Syndig1l", "Sst Mme", "Sst Nmbr", "Sst Nts", "Sst Crh", "Pvalb Vipr2", "Pvalb Th", "Pvalb Lpl")
+Clusters <- Clusters[Clusters %in% tokeep]
+
+cluster.percent = NULL
+for(i in 1:length(Clusters)){
+  cluster.data = table(int@meta.data$yao_groups == Clusters[i],Idents(int)) 
+  cluster.table = cluster.data["TRUE",]
+  percent = as.data.frame((cluster.table/sum(cluster.table)) * 100)
+  cluster.percent[i] <- percent
+}
+
+cluster.pc.data <- data.frame(t(sapply(cluster.percent,c)))
+rownames(cluster.pc.data) <- Clusters
+colnames(cluster.pc.data) <- levels(Idents(int))
+
+cluster.pc.data$yao_groups <- rownames(cluster.pc.data)
+
+plot.data.3 <- melt(cluster.pc.data, id=c("yao_groups"))
+colnames(plot.data.3) <- c("yao_groups", "integrated_cluster", "percent")
+
+tokeep <- c("Lamp5 Lhx6","Lamp5 Pax6", "Lamp5 Egln3","Lamp5 Pdlim5", "Ntng1 HPF","Sncg Jam2 Npy2r", "Sncg Krt73", "Serpinf1", "Vip Pcdh11x", "Vip Lmo1", "Vip Cp Rspo1", "Vip Mybpc1", "Vip Cbln4 HPF", "Vip Igfbp6", "Sst Chodl",   "Sst Etv1", "Sst Myh8", "Sst Calb2", "Sst Hpse", "Sst Syndig1l", "Sst Mme", "Sst Nmbr", "Sst Nts", "Sst Crh", "Pvalb Vipr2", "Pvalb Th", "Pvalb Lpl") # omit "Sst Lmo1 HPF" and "Sst Ctsc HPF" because <10 neurons
+
+plot.data.3 <- plot.data.3[plot.data.3$yao_groups %in% tokeep,]
+
+plot.data.3 %>% ggplot(aes(x = integrated_cluster, y = yao_groups, fill=percent)) + geom_tile() + 
+  scale_fill_gradient(low = "white", high = "black", limits=c(0, 100), breaks=seq(0,100,by=25)) + 
+  cowplot::theme_cowplot() + 
+  theme(axis.line  = element_blank()) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ylab('') +
+  theme(axis.ticks = element_blank()) 
+```
+
+```{r }
+gaba.int.clusters <- c('3','50','13','4','44','11','8','40','34','17','49')
+# mammalian interneuron clusters
+Clusters1 <- unique(int@meta.data$yao_supergroups)
+tokeep1 <- c("Lamp5 Lhx6","Lamp5 other","Sncg", "Vip Serpinf1", "Vip other","Sst Chodl", "Sst other1", "Sst other2", "Pvalb Vipr2", "Pvalb other")
+Clusters1 <- Clusters1[Clusters1 %in% tokeep1]
+
+cluster.percent1 = NULL
+for(i in 1:length(Clusters1)){
+  cluster.data = table(int@meta.data$yao_supergroups == Clusters1[i],Idents(int)) 
+  cluster.table = cluster.data["TRUE",]
+  percent = as.data.frame((cluster.table/sum(cluster.table)) * 100)
+  cluster.percent1[i] <- percent
+}
+
+cluster.pc.data1 <- data.frame(t(sapply(cluster.percent1,c)))
+rownames(cluster.pc.data1) <- Clusters1
+colnames(cluster.pc.data1) <- levels(Idents(int))
+
+cluster.pc.data1$yao_supergroups <- rownames(cluster.pc.data1)
+plot.data.1 <- melt(cluster.pc.data1, id=c("yao_supergroups"))
+colnames(plot.data.1) <- c("original_cluster","integrated_cluster","percent")
+
+Clusters2 <- unique(int@meta.data$cluster_supergroups)
+
+tokeep2 <- c("t Pvalb-like", "t Sst-like","t Lamp5", "t Sncg-Vip-like","l Pvalb-like", "l Sst Chodl", "l Sst-like", "l Lamp5", "l Sngc-Vip-like", "s Pvalb-like", "s Sst Chodl like", "s Sst-like", "s Lamp5","s Sngc-Vip-like", "t Lamp5 Ndnf") 
+Clusters2 <- Clusters2[Clusters2 %in% tokeep2]
+
+cluster.percent2 = NULL
+for(i in 1:length(Clusters2)){
+  cluster.data = table(int@meta.data$cluster_supergroups == Clusters2[i],Idents(int)) 
+  cluster.table = cluster.data["TRUE",]
+  percent = as.data.frame((cluster.table/sum(cluster.table)) * 100)
+  cluster.percent2[i] <- percent
+}
+
+cluster.pc.data2 <- data.frame(t(sapply(cluster.percent2,c)))
+rownames(cluster.pc.data2) <- Clusters2
+colnames(cluster.pc.data2) <- levels(Idents(int))
+
+cluster.pc.data2$cluster_label <- rownames(cluster.pc.data2)
+
+plot.data.2 <- melt(cluster.pc.data2, id=c("cluster_label"))
+colnames(plot.data.2) <- c("original_cluster","integrated_cluster","percent")
+
+# merge
+
+plot.data <- rbind(plot.data.1,plot.data.2)
+plot.data <- plot.data[plot.data$integrated_cluster %in% gaba.int.clusters,]
+
+pdf("4Sp_v2_res1.1_SLMclustering_INs_heatmap.pdf")
+plot.data %>% mutate(original_cluster = factor(original_cluster, levels=c(
+  "Pvalb other", 
+  "Pvalb Vipr2", 
+  "Sst Chodl", 
+  "Sst other1",
+  "Sst other2", 
+  "Vip other", 
+  "Vip Serpinf1", 
+  "Sncg", "Lamp5 other", "Lamp5 Lhx6", "t Pvalb-like", "t Sst-like","t Lamp5", "t Lamp5 Ndnf", "t Sncg-Vip-like","l Pvalb-like", "l Sst Chodl", "l Sst-like", "l Lamp5", "l Sngc-Vip-like", "s Pvalb-like", "s Sst Chodl like", "s Sst-like", "s Lamp5","s Sngc-Vip-like"))) %>% ggplot(aes(x = integrated_cluster, y = original_cluster, fill=percent)) + geom_tile() + 
+  scale_fill_gradient(low = "white", high = "black", limits=c(0, 100), breaks=seq(0,100,by=25)) + 
+  cowplot::theme_cowplot() + 
+  theme(axis.line  = element_blank()) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ylab('') +
+  theme(axis.ticks = element_blank()) 
+dev.off()
+
+#pdf("CPall_07_res1_SLMclustering_INs_heatmap3.1.pdf")
+plot.data %>% mutate(original_cluster = factor(original_cluster, levels=c(
+"Pvalb other",  "t Pvalb-like", "l Pvalb-like","s Pvalb-like","Pvalb Vipr2",
+"Sst Chodl",  "l Sst Chodl", "s Sst Chodl like",
+"Sst other1","t Sst-like","l Sst-like", "s Sst-like",
+"Sst other2", 
+"t Lamp5","t Lamp5 Ndnf","l Lamp5", "s Lamp5",
+"Lamp5 other", "Lamp5 Lhx6", 
+"Sncg","Vip Serpinf1",   "t Sncg-Vip-like", "l Sngc-Vip-like",   "s Sngc-Vip-like","Vip other"))) %>% ggplot(aes(x = integrated_cluster, y = original_cluster, fill=percent)) + geom_tile() + 
+  scale_fill_gradient(low = "white", high = "black", limits=c(0, 100), breaks=seq(0,100,by=25)) + 
+  cowplot::theme_cowplot() + 
+  theme(axis.line  = element_blank()) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  ylab('') +
+  theme(axis.ticks = element_blank()) 
+#dev.off()
+
+```
+
+
+# Marker genes for DotPlots
+
+## DotPlot of GABAergic interneuron integration
+
+```{r}
+int.gaba <- subset(int, idents=speciesTree.order.1[1:11])
+new.ids <- paste(int.gaba@meta.data$SLM_idents_res1.2, int.gaba@meta.data$species)
+int.gaba[["id_by_species"]] <- new.ids
+Idents(int.gaba) <- int.gaba@meta.data$id_by_species
+
+remove <- names(table(Idents(int.gaba))[table(Idents(int.gaba))<9])
+
+int.gaba <- subset(int.gaba, idents = Idents(int.gaba)[!Idents(int.gaba) %in% remove])
+
+int.gaba.sct <- PrepSCTFindMarkers(int.gaba)
+
+markers.gaba.sct <- FindAllMarkers(int.gaba, only.pos =T, test.use="roc")
+
+nin <- c("34 salamander", "34 lizard", "34 turtle", "17 salamander", "17 lizard", "17 turtle", "17 mouse", "49 mouse")
+order <- levels(int.gaba.sct)
+order <- order[order %nin% nin]
+order <- c(order, nin)
+  
+levels(int.gaba.sct) <- order
+DefaultAssay(int.gaba.sct) <- "SCT"
+
+DefaultAssay(int) <- "SCT"
+# FINAL DOTPLOT FOR THE PAPER
+pdf("dotplot_gaba_TFs_5.2.pdf", width=6, height = 3)
+DotPlot(int.gaba.sct, assay="SCT", features = unique(c("LAMP5","ADARB2","RELN","NDNF","SEMA3E","NECAB1","NPY","LHX6","PROX1","NFIB","NR2F2","ID2","NR2E1")), idents=c("34 salamander","34 lizard","34 turtle", "17 salamander", "17 turtle", "17 mouse","49 mouse")) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+dev.off()
+```
+
+## DotPlot of ET-neurons integration
+
+```{r}
+int.glu <- subset(int, idents=speciesTree.order.1[12:52])
+new.ids <- paste(int.glu@meta.data$SLM_idents_res1.2, int.glu@meta.data$species)
+int.glu[["id_by_species"]] <- new.ids
+Idents(int.glu) <- int.glu@meta.data$id_by_species
+
+remove <- names(table(Idents(int.glu))[table(Idents(int.glu))<100]) # none of the clusters we are interested in have less than 100 cells in each
+
+int.glu <- subset(int.glu, idents = Idents(int.glu)[!Idents(int.glu) %in% remove])
+
+nin <- c("38 mouse", "30 mouse", "32 mouse", "12 salamander", "12 lizard", "12 turtle", "12 mouse")
+order <- levels(int.glu.sct)
+order <- order[order %nin% nin]
+order <- c(order, nin)
+  
+levels(int.glu.sct) <- order
+DefaultAssay(int.glu.sct) <- "SCT"
+
+
+DefaultAssay(int) <- "SCT"
+# FINAL DOTPLOT FOR THE PAPER
+png("dotplot_glutET_5.2.pdf", width=5, height = 5, res = 400)
+DotPlot(int.glu.sct, assay="SCT", features = unique(c("NTS", "CDH13", "PCP4", "CRYM", "CRIM1", "EPHB1", "BCL11B", "SOX5", "LMO3", "LDB2", "MEF2C", "SATB2", "TSHZ2")), idents=c("38 mouse", "30 mouse", "32 mouse", "12 salamander", "12 lizard", "12 turtle", "12 mouse")) + theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+dev.off()
+```
+
+## Subsetting the object for generating closeups of the integrated analysis
+
+```{r}
+cluster12 <- subset(int, idents = "12")
+
+plot <- DimPlot(cluster12, label = F, group.by = "species", pt.size = 0.8, shuffle = T)
+select.cells <- CellSelector(plot = plot)
+cluster12 <- subset(cluster12, cells = select.cells)
+
+mycols <- c("#FFDD15", "#809BFF", "#FD80FE",  "#F6921E") # Species color
+
+DimPlot(cluster12, label = F, group.by = "species", pt.size = 0.8, shuffle = T, cols = alpha(mycols, alpha = 0.8))
+DimPlot(cluster12, label = F, group.by = "ident_track", pt.size = 0.8, shuffle = T)
+
+cluster10 <- subset(int, idents = "10")
+
+plot <- DimPlot(cluster10, label = F, group.by = "species", pt.size = 0.8, shuffle = T)
+select.cells <- CellSelector(plot = plot)
+cluster10 <- subset(cluster10, cells = select.cells)
+
+mycols <- c("#FFDD15", "#809BFF", "#FD80FE",  "#F6921E") # Species color
+
+DimPlot(cluster10, label = F, group.by = "species", pt.size = 0.8, shuffle = T, cols = alpha(mycols, alpha = 0.8))
+DimPlot(cluster10, label = F, group.by = "ident_track", pt.size = 0.8, shuffle = T)
+```
+
+```{r}
+png("cluster10_zoom_byspecies.png", width = 5, height = 5, res = 400, units = 'in')
+DimPlot(cluster10, label = F, group.by = "species", pt.size = 0.8, shuffle = T, cols = alpha(mycols, alpha = 0.9)) + NoLegend()
+dev.off()
+
+pdf("cluster10.pdf", width = 5, height = 5)
+DimPlot(cluster10, label = F, group.by = "species", pt.size = 0.8, shuffle = T, cols = alpha(mycols, alpha = 0.9)) + NoLegend()
+dev.off()
+
+png("cluster12_zoom_byspecies.png", width = 5, height = 5, res = 400, units = 'in')
+DimPlot(cluster12, label = F, group.by = "species", pt.size = 0.8, shuffle = T, cols = alpha(mycols, alpha = 0.9)) + NoLegend()
+dev.off()
+
+pdf("cluster12.pdf", width = 5, height = 5)
+DimPlot(cluster12, label = F, group.by = "species", pt.size = 0.8, shuffle = T, cols = alpha(mycols, alpha = 0.9)) + NoLegend()
+dev.off()
+```
+
+
+
