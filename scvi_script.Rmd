@@ -1,0 +1,167 @@
+---
+title: "scvi tutorial"
+author: "alonso"
+output: html_document
+  df_print: paged
+  toc: yes
+  toc_float: no
+date: |
+      | Started on 06/01/2022
+      | Compiled on 'r format (Sys.Date(), "%B %d, %Y")'
+---
+
+# Setup
+
+Activate a local environment and install required R packages. We will use a previously created local environment created in Miniconda called scvi-env called from reticulate. 
+
+```{r}
+renv::init()
+
+renv::install('reticulate')
+
+library(reticulate)
+
+renv::install('Seurat')
+renv::install('ggplot2')
+renv::install('png')
+renv::install('BiocManager')
+renv::install('devtools')
+renv::install('cowplot')
+renv::install("sctransform")
+
+reticulate::use_condaenv("scvi-env", required = TRUE)
+```
+
+# Installing more packages
+
+From BiocManager and sceasy. 
+
+```{r}
+BiocManager::install("SingleCellExperiment")
+BiocManager::install("scater")
+BiocManager::install("multtest")
+BiocManager::install("glmGamPoi")
+
+devtools::install_github('cellgeni/sceasy')
+```
+
+# Installing Python requirements
+
+```{r}
+reticulate::py_install('scanpy')
+reticulate::py_install('python-igraph')
+reticulate::py_install('louvain')
+```
+
+Saving r environment. 
+
+```{r}
+renv::snapshot()
+```
+
+# Loading packages
+
+```{r warning=FALSE, message=FALSE}
+library(ggplot2)
+library(Seurat)
+library(SeuratData)
+library(SingleCellExperiment)
+library(cowplot)
+library(sceasy)
+library(scater)
+library(glmGamPoi)
+```
+
+# Integration test
+
+We will use the merged object with raw counts generated in the **3sp_object_for_scvi.R** script, as well as the integration genes generated from the **3Species_integration_HPC.R** script.
+
+```{r fig.height=10, fig.width=10}
+scvi.int <- readRDS("scvi_tools_3sp_merged.rds")
+comb.features <- readRDS("3sp_genes_3951_scvi.rds")
+
+scvi.int <- scvi.int[comb.features]
+
+adata <- convertFormat(scvi.int, from="seurat", to="anndata", main_layer="counts", drop_single_values=FALSE)
+print(adata)
+
+# run setup_anndata, use column species for batch
+scvi$model$SCVI$setup_anndata(adata, batch_key = 'species')
+
+# create the model
+model = scvi$model$SCVI(adata)
+
+# train the model
+model$train()
+
+# to specify the number of epochs when training:
+# model$train(max_epochs = as.integer(400))
+
+# get the latent representation
+latent = model$get_latent_representation()
+
+# put it back in our original Seurat object
+latent <- as.matrix(latent)
+rownames(latent) = colnames(scvi.int)
+scvi.int[["scvi"]] <- CreateDimReducObject(embeddings = latent, key = "scvi_", assay = DefaultAssay(scvi.int))
+
+library(cowplot)
+# for jupyter notebook
+options(repr.plot.width=10, repr.plot.height=8)
+
+# Find clusters, then run UMAP, and visualize
+scvi.int <- FindNeighbors(scvi.int, dims = 1:10, reduction = "scvi")
+scvi.int <- FindClusters(scvi.int, resolution =1)
+
+scvi.int <- RunUMAP(scvi.int, dims = 1:10, reduction = "scvi", n.components = 2)
+
+saveRDS(scvi.int, file = "scvi-tools_3Sp_3951genes_v3.rds")
+
+DimPlot(scvi.int, reduction = "umap", pt.size=1, label = T, label.size = 4, repel = TRUE, shuffle = TRUE, group.by = "species")# + NoLegend()
+```
+
+# 4 Species integration with scVI
+
+```{r fig.height=10, fig.width=10}
+scvi.int <- readRDS("scvi_tools_4sp_merged.rds")
+comb.features <- readRDS("comb_features_4sp.rds")
+
+scvi.int <- scvi.int[comb.features]
+
+adata <- convertFormat(scvi.int, from="seurat", to="anndata", main_layer="counts", drop_single_values=FALSE)
+print(adata)
+
+# run setup_anndata, use column species for batch
+scvi$model$SCVI$setup_anndata(adata, batch_key = 'species')
+
+# create the model
+model = scvi$model$SCVI(adata)
+
+# train the model
+model$train()
+
+# to specify the number of epochs when training:
+# model$train(max_epochs = as.integer(400))
+
+# get the latent representation
+latent = model$get_latent_representation()
+
+# put it back in our original Seurat object
+latent <- as.matrix(latent)
+rownames(latent) = colnames(scvi.int)
+scvi.int[["scvi"]] <- CreateDimReducObject(embeddings = latent, key = "scvi_", assay = DefaultAssay(scvi.int))
+
+library(cowplot)
+# for jupyter notebook
+options(repr.plot.width=10, repr.plot.height=8)
+
+# Find clusters, then run UMAP, and visualize
+scvi.int <- FindNeighbors(scvi.int, dims = 1:10, reduction = "scvi")
+scvi.int <- FindClusters(scvi.int, resolution =1)
+
+scvi.int <- RunUMAP(scvi.int, dims = 1:10, reduction = "scvi", n.components = 2)
+
+saveRDS(scvi.int, file = "4Sp_scvi_v1.rds")
+
+DimPlot(scvi.int, reduction = "umap", pt.size=1, label = T, label.size = 4, repel = TRUE, shuffle = TRUE, group.by = "species")# + NoLegend()
+```
