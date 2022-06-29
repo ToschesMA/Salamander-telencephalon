@@ -9,3 +9,5 @@ See also the preprint: <b> Cell type profiling in salamanders identifies innovat
 **Developmental dataset** contains code used to analyse scRNAseq data from developmental stages. 
 
 **Comparative analysis** contains code used to compare scRNAseq data across species. 
+
+Data can be explored interactively on https://toscheslab.shinyapps.io/salamander_telencephalon/
