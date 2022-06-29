@@ -2,12 +2,10 @@
 
 Code used for the analysis of single-cell RNA sequencing data from the telencephalon of the Spanish ribbed newt <i>Pleurodeles waltl</i>.
 
-**SingleCellAdult_E1-E6.Rmd** is the Markdown that contains the code for building the Seurat objects generated from raw alignment.
+See also the preprint: <b> Cell type profiling in salamanders identifies innovations in vertebrate forebrain evolution </b> by Woych, Ortega-Gurrola, Deryckere, Jaeger, Gumnit et al, https://www.biorxiv.org/content/10.1101/2022.03.28.485354v1 
 
-**cleaning_SVM.Rmd** is the Markdown that contains the code for implementing SVM and cleaning the datset. 
+**Adult dataset** contains code used to analyse scRNAseq data from the adult telencephalon.
 
-**neurons.Rmd** is the Markdown that contains only neuronal cells from the entire scRNA-Seq. 
+**Developmental dataset** contains code used to analyse scRNAseq data from developmental stages. 
 
-**final_clean_analysis6-16-22.R** contains all code used for analysis of the developmental data
-
-
+**Comparative analysis** contains code used to compare scRNAseq data across species. 
