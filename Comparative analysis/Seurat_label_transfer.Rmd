@@ -1,0 +1,200 @@
+---
+title: "comparative_analysis_mastercode"
+author: "MAT"
+date: "12/8/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Label transfer pipeline
+
+```{r}
+# Libraries
+library(Seurat)
+library(SeuratDisk)
+library(corrplot)
+library(MatrixGenerics)
+library(ggplot2)
+
+########################################################################
+# Import files
+reference0 <- readRDS("") #insert file name here
+query0 <- readRDS("") #insert file name here
+eggnog_reference <- read.table(" _eggnog_pruned.txt" , header=T) #insert file name here
+eggnog_query <- read.table(" _eggnog_pruned.txt" , header=T) #insert file name here
+
+# Setting variables
+date = #insert date here
+Sr = "S"
+Sq = "T"  
+reference_name = "salamander"
+query_name = "turtle"
+r_idents_keep = levels(Idents(reference0))[!levels(Idents(reference0)) %in% c( )]
+q_idents_keep = levels(Idents(query0))[!levels(Idents(query0)) %in% c( )]
+vars_ref = c("nFeature_RNA","nCount_RNA","animal","percent.mt")
+vars_query = c("nFeature_RNA","nCount_RNA","animalident","percent.mito")
+nPCs_r = 180
+nPCs_q = 38  
+nDims = 50
+Kanchor = 10
+Kweight = 10
+thr = 0.5     # filtering threshold for prediction scores
+
+########################################################################
+# Bring the objects in the same gene space
+
+reference0 <- subset(reference0, idents = r_idents_keep)
+query0 <- subset(query0, idents = q_idents_keep)
+
+r_data <- GetAssayData(reference0, slot="counts")
+r_data <- r_data[rownames(r_data) %in% eggnog_reference[,1],]
+
+q_data <- GetAssayData(query0, slot="counts") 
+q_data <- q_data[rownames(q_data) %in% eggnog_query[,1],]
+
+eggnog_r <- eggnog_reference[eggnog_reference[,1] %in% rownames(r_data),]
+eggnog_q <- eggnog_query[eggnog_query[,1] %in% rownames(q_data),]
+
+r_data <- r_data[order(match(rownames(r_data), eggnog_r[,1])),]
+q_data <- q_data[order(match(rownames(q_data), eggnog_q[,1])),]
+
+all.equal(rownames(r_data),as.character(eggnog_r[,1]))
+all.equal(rownames(q_data),as.character(eggnog_q[,1]))
+
+# replace gene names with eggnog names in expression tables (only one-to-ones)
+rownames(r_data) <- eggnog_r$eggnog 
+rownames(q_data) <- eggnog_q$eggnog 
+dim(r_data)
+dim(q_data)
+
+# Create metadata column with species information
+reference0[["cluster_label"]] <- Idents(object = reference0)
+query0[["cluster_label"]] <- Idents(object = query0)
+
+meta.seurat <- data.frame(
+  cluster_label = c(paste(Sq, as.character(Idents(query0)), sep="-"), paste(Sr,as.character(Idents(reference0)), sep="-")),
+  species = c(rep(query_name, length(Idents(query0))),rep(reference_name, length(Idents(reference0)))),
+  row.names=c(colnames(q_data),colnames(r_data)))
+
+# Create Seurat objects
+query<- CreateSeuratObject(count=q_data, meta.data = meta.seurat[colnames(q_data),])
+query <- AddMetaData(query, query0@meta.data)
+Idents(query) <- query$cluster_label
+
+reference <- CreateSeuratObject(count=r_data, meta.data = meta.seurat[colnames(r_data),])
+reference <- AddMetaData(reference, reference0@meta.data)
+Idents(reference) <- reference$cluster_label
+
+reference <- SCTransform(reference, verbose = FALSE, vars.to.regress = vars_ref)
+reference <- RunPCA(reference, npcs = 200)
+reference <- FindNeighbors(reference, dims = 1:nPCs_r)
+reference <- RunUMAP(reference, dims = 1:nPCs_r, return.model=T)
+ 
+query <- SCTransform(query, verbose = FALSE, vars.to.regress = vars_query)
+query <- RunPCA(query, npcs = 200)
+query <- FindNeighbors(query, dims = 1:nPCs_q)
+query <- RunUMAP(query, dims = 1:nPCs_q)
+ 
+# Running the label transfer - with CCA
+neur.anchors <- FindTransferAnchors(reference = reference, query = query, dims = 1:nDims, reduction = "cca", k.anchor = Kanchor)
+predictions <- TransferData(anchorset = neur.anchors, refdata = reference$cluster_label, dims = 1:nDims, weight.reduction="cca", k.weight= Kweight)
+query <- AddMetaData(query, metadata = predictions)
+
+# Check the anchors
+anchors <- slot(object = neur.anchors, name = "anchors")
+ids_r <- unique(anchors[,1])
+cells_r <- rownames(reference@meta.data)
+ref.anchors <- cells_r[ids_r]
+reference$is.anchor <- "0"
+reference@meta.data$is.anchor[rownames(reference@meta.data) %in% ref.anchors] <- "1"
+reference@meta.data$is.anchor <- as.numeric(reference@meta.data$is.anchor)
+
+ids_q <- unique(anchors[,2])
+cells_q <- rownames(query@meta.data)
+q.anchors <- cells_q[ids_q]
+query$is.anchor <- "0"
+query@meta.data$is.anchor[rownames(query@meta.data) %in% q.anchors] <- "1"
+query@meta.data$is.anchor <- as.numeric(query@meta.data$is.anchor)
+
+# Results table
+results <- table(query@meta.data$cluster_label, query@meta.data$predicted.id)
+results.norm <- 100*(results/rowSums(results))
+results.norm_cropped <- results.norm[rowMaxs(results.norm) > 25, colMaxs(results.norm) > 25]
+high_score_cells <- rownames(query@meta.data[query@meta.data$prediction.score.max>thr,])
+
+# Mapping on the UMAP of the reference
+query@tools$TransferData <- NULL
+query <- MapQuery(anchorset = neur.anchors, reference = reference, query = query, refdata = list(celltype = "cluster_label"), reference.reduction = "pca", reduction.model = "umap")
+ref.umap <- query[["ref.umap"]]@cell.embeddings
+
+# Plots
+pdf(paste0(date, "_reference_", reference_name,"_query_",query_name,"_Dims",nDims,"_k.anchor",Kanchor,"_k.weight",Kweight,"_thr",thr,".pdf"))
+
+hist(query@meta.data$prediction.score.max)
+
+DimPlot(reference, group.by = "is.anchor", cols = c("grey","red")) + ggtitle("anchors reference")
+DimPlot(query, group.by = "is.anchor", cols = c("grey","red")) + ggtitle("anchors query")
+
+corrplot(results.norm, order="original",tl.pos="lt", method="color", tl.col="black", is.corr=F)
+corrplot(results.norm_cropped, order="original",tl.pos="lt", method="color", tl.col="black", is.corr=F)
+
+DimPlot(query, group.by="cluster_label", label = T) + NoLegend() + ggtitle("Query original clusters")
+DimPlot(query, group.by = "predicted.id", label = T) + NoLegend() + ggtitle("All Predicted IDs")
+
+DimPlot(query, cells=high_score_cells, group.by="cluster_label", label = T) + NoLegend() + ggtitle(paste("Prediction score >", thr))
+DimPlot(query, cells=high_score_cells, group.by = "predicted.id", label = T) + NoLegend() + ggtitle(paste("Prediction score >", thr))
+
+xmin = min(reference[["umap"]]@cell.embeddings[,1],query[["ref.umap"]]@cell.embeddings[,1])
+xmax = max(reference[["umap"]]@cell.embeddings[,1],query[["ref.umap"]]@cell.embeddings[,1])
+ymin = min(reference[["umap"]]@cell.embeddings[,2],query[["ref.umap"]]@cell.embeddings[,2])
+ymax = max(reference[["umap"]]@cell.embeddings[,2],query[["ref.umap"]]@cell.embeddings[,2])
+
+DimPlot(reference, reduction = "umap", group.by = "cluster_label", label = TRUE, label.size = 2,
+    repel = F) + NoLegend() + ggtitle("Reference annotations") + xlim(xmin, xmax) + ylim(ymin, ymax)
+
+cells <- rownames(query@meta.data[query@meta.data$prediction.score.max>thr,])
+
+DimPlot(query, cells=cells, reduction = "ref.umap", group.by = "cluster_label", label = TRUE,
+    label.size = 2, repel = F) + NoLegend() + ggtitle("Query transferred labels") + xlim(xmin, xmax) + ylim(ymin, ymax)
+
+dev.off()
+
+
+# Saving results
+results.list <- list(r_idents_keep, q_idents_keep, predictions, results.norm, ref.umap)
+names(results.list) <- c("identities_reference","identities_query","predictions", "results.norm","ref.umap")
+saveRDS(results.list, file=paste0(date, "_reference_", reference_name,"_query_",query_name,"_Dims",nDims,"_k.anchor",Kanchor,"_k.weight",Kweight,"_thr",thr,".RDS"))
+
+pdf(paste0(date, "_plots_reference_",reference_name,"_query_",query_name,"_Dims",nDims,"_k.anchor",Kanchor,"_k.weight",Kweight,"_thr",thr,".pdf"))
+scores = grep("prediction.score.",colnames(query@meta.data), value=TRUE)
+query0 <- AddMetaData(query0, predictions)
+for(i in 1:length(scores)) {
+ abc <- FeaturePlot(query0, scores[i], cells=WhichCells(query0, idents=c(paste0("TEGLU", seq(1,11,by=1))))) +scale_color_gradient(low="grey90",high="violetred4", space ="Lab" , limits=c(0,1)) 
+ print(abc)
+}
+dev.off()
+
+```
+
+
+
+```{r}
+# UMAP of prediction scores
+
+# neur is the Seurat neuronal object 
+
+neur <- AddMetaData(neur, results.list[["predictions"]])
+
+pdf("prediction_scores_UMAP.pdf")
+scores = grep("prediction.score.",colnames(neur@meta.data), value=TRUE)
+for(i in 1:length(scores)) {   
+     p <- FeaturePlot(neur, scores[i]) + scale_color_gradient(low="grey90",high="violetred4", space ="Lab", limits=c(0,1))
+     print(p)
+}
+dev.off()
+```
+
+ 
